@@ -19,10 +19,16 @@ public class Chord {
 
     private static List<PeerConnection> peerList = Collections.synchronizedList(new ArrayList<>());
 
+    //change this to bool -> string. return random live peer's network info
     public static synchronized boolean insertPeer(PeerConnection peerConn) {
         boolean success = false;
         try {
-            success = peerList.add(peerConn);
+            if (peerList.isEmpty()) {
+                success = peerList.add(peerConn);
+            }
+            else {
+                returnRandomNodeForEntry();
+            }
             if (success) {
                 success = adjustFingerTable();
             }

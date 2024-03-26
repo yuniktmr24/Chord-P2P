@@ -7,16 +7,13 @@ import csx55.domain.Node;
 import csx55.domain.Protocol;
 import csx55.domain.RequestType;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.IOException;
+import java.io.*;
 import java.net.Socket;
 
-public class TCPReceiverThread implements Runnable{
+public class TCPReceiverThread implements Runnable {
     private Socket messageSource;
     private Node node;
-    private DataInputStream din;
+    private ObjectInputStream ois;
 
     private byte[] receivedPayload;
 
@@ -25,10 +22,14 @@ public class TCPReceiverThread implements Runnable{
     private boolean terminated = false;
 
     public TCPReceiverThread (Node node, Socket socket, TCPConnection connection) throws IOException {
-        messageSource = socket;
-        this.node = node;
-        din = new DataInputStream(socket.getInputStream());
-        this.connection = connection;
+        try {
+            messageSource = socket;
+            this.node = node;
+            ois = new ObjectInputStream(socket.getInputStream());
+            this.connection = connection;
+        }catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     public void terminateReceiver(){
@@ -45,6 +46,38 @@ public class TCPReceiverThread implements Runnable{
 
     @Override
     public void run() {
+        while (true) {
+            Serializable object;
+            try {
+                object = readObject(ois);
+                if (node instanceof Discovery) {
+                    //could be made into an eventFactory
+                    if (object instanceof ClientConnection) {
+                        ((Discovery) node).handleJoin(messageSource, (ClientConnection) object, connection);
+                    }
+                }
+                //peer node
+                else if (node instanceof Peer ){
+
+                }
+            } catch (Exception ex) {
+                this.close();
+            }
+        }
+    }
+
+    private Serializable readObject (ObjectInputStream ois) {
+        try {
+            return (Serializable) ois.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+
+    /*
+    @Deprecated
+    public void runDeprecated() {
         //keep listening until socket is open
         while (!messageSource.isClosed()) {
             try {
@@ -94,10 +127,12 @@ public class TCPReceiverThread implements Runnable{
         }
     }
 
+     */
+
 
     public void close() {
         try {
-            this.din.close();
+            this.ois.close();
         } catch (IOException ex) {
             ex.printStackTrace();
         }

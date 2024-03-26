@@ -1,5 +1,7 @@
 package csx55.domain;
 
-public class Node {
+import java.io.Serializable;
 
+public class Node implements Serializable {
+    private static final long serialversionUID = 1L;
 }

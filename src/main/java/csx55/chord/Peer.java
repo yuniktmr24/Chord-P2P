@@ -21,6 +21,7 @@ import java.util.Random;
 import java.util.logging.Logger;
 
 public class Peer extends Node implements Serializable {
+    private static final long serialversionUID = 1L;
     private static final Logger logger = Logger.getLogger(Peer.class.getName());
 
     private FingerTable fingerTable;
@@ -37,9 +38,13 @@ public class Peer extends Node implements Serializable {
 
     private List <String> storedFilePaths = new ArrayList<>();
 
-    private TCPConnection discoveryConnection;
+    private transient TCPConnection discoveryConnection;
 
-
+    private void setServiceDiscovery (String nodeIp, int nodePort) {
+        setNodeIp(nodeIp);
+        setNodePort(nodePort);
+        setPeerId();
+    }
 
     public static void main (String [] args) {
         //try (Socket socketToRegistry = new Socket(args[0], Integer.parseInt(args[1]));
@@ -49,8 +54,7 @@ public class Peer extends Node implements Serializable {
             System.out.println("Connecting to server...");
 
             Peer peer = new Peer();
-            peer.setNodeIp(InetAddress.getLocalHost().getHostAddress());
-            peer.setNodePort(peerServer.getLocalPort());
+            peer.setServiceDiscovery(InetAddress.getLocalHost().getHostAddress(), peerServer.getLocalPort());
 
             Thread messageNodeServerThread = new Thread(new TCPServerThread(peer, peerServer));
             messageNodeServerThread.start();
@@ -74,10 +78,12 @@ public class Peer extends Node implements Serializable {
             ClientConnection joinChord = new ClientConnection(RequestType.JOIN_CHORD, this);
 
             TCPConnection connection = new TCPConnection(peer, socketToRegistry);
+
+            connection.getSenderThread().sendObject(joinChord);
             connection.startConnection();
             //connection.getSenderThread().sendData();
             this.discoveryConnection = connection;
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
     }
@@ -120,7 +126,7 @@ public class Peer extends Node implements Serializable {
         return nodeIp;
     }
 
-    public void setNodeIp(String nodeIp) {
+    private void setNodeIp(String nodeIp) {
         this.nodeIp = nodeIp;
     }
 
@@ -130,7 +136,7 @@ public class Peer extends Node implements Serializable {
 
 
 
-    public void setNodePort(int nodePort) {
+    private void setNodePort(int nodePort) {
         this.nodePort = nodePort;
     }
 
@@ -229,8 +235,8 @@ public class Peer extends Node implements Serializable {
         this.neighbors = neighbors;
     }
 
-    public void setPeerId(Integer peerId) {
-        this.peerId = peerId;
+    public void setPeerId() {
+        this.peerId = hashCode();
     }
 
     public List<String> getStoredFilePaths() {

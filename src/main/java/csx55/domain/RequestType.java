@@ -1,6 +1,8 @@
 package csx55.domain;
 
-public enum RequestType {
+import java.io.Serializable;
+
+public enum RequestType implements Serializable {
     JOIN_CHORD,
     LEAVE_CHORD,
 

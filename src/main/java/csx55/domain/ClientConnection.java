@@ -6,8 +6,9 @@ import java.io.*;
 
 
 public class ClientConnection implements Serializable {
+    private static final long serialversionUID = 1L;
 
-    private final int type = Protocol.CLIENT_CONNECTION;
+    //private final int type = Protocol.CLIENT_CONNECTION;
     private Peer peerNode;
 
     private RequestType requestType;

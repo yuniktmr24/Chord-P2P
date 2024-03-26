@@ -1,5 +1,6 @@
 package csx55.transport;
 import java.io.IOException;
+import java.io.Serializable;
 import java.net.Socket;
 import java.util.concurrent.TimeUnit;
 import csx55.domain.Node;
