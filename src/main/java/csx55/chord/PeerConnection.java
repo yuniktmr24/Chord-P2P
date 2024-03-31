@@ -6,9 +6,12 @@ public class PeerConnection {
     private Peer peer;
     private TCPConnection connection;
 
+    private final String connectionDescriptor;
+
     public PeerConnection(Peer peer, TCPConnection connection) {
         this.peer = peer;
         this.connection = connection;
+        this.connectionDescriptor = peer != null ? peer.getPeerDescriptor() : null;
     }
 
     public Peer getPeer() {
@@ -25,5 +28,9 @@ public class PeerConnection {
 
     public void setConnection(TCPConnection connection) {
         this.connection = connection;
+    }
+
+    public String getConnectionDescriptor() {
+        return connectionDescriptor;
     }
 }

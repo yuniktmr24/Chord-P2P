@@ -1,11 +1,9 @@
 package csx55.transport;
 
 import csx55.chord.Discovery;
+import csx55.chord.FingerTable;
 import csx55.chord.Peer;
-import csx55.domain.ClientConnection;
-import csx55.domain.Node;
-import csx55.domain.Protocol;
-import csx55.domain.RequestType;
+import csx55.domain.*;
 
 import java.io.*;
 import java.net.Socket;
@@ -58,7 +56,19 @@ public class TCPReceiverThread implements Runnable {
                 }
                 //peer node
                 else if (node instanceof Peer ){
-
+                    if (object instanceof Message) {
+                        Message msg = (Message)object;
+                        if (msg.getProtocol() == Protocol.REQUEST_FINGER_TABLE) {
+                            ((Peer) node).sendFingerTable(connection);
+                        }
+                        else {
+                            ((Peer) node).handleMessage(msg);
+                        }
+                    } else if (object instanceof ServerResponse) {
+                        ((Peer) node).handleDiscoveryResponse((ServerResponse)object);
+                    } else if (object instanceof FingerTable) {
+                        ((Peer) node).receiveFingerTable((FingerTable) object);
+                    }
                 }
             } catch (Exception ex) {
                 this.close();

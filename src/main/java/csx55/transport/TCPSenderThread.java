@@ -30,8 +30,6 @@ public class TCPSenderThread implements Runnable {
         while (true) {
             try {
                 Object obj = queue.take();
-
-
                 try {
                     dout.writeObject(obj);
                     dout.flush();

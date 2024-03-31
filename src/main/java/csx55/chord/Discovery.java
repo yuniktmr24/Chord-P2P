@@ -25,6 +25,8 @@ public class Discovery extends Node implements Serializable {
     public static Discovery getInstance() {
         return instance;
     }
+
+    private static List <Peer> registeredPeers = new ArrayList<>();
     public static void main(String[] args) {
         int registryPort = args.length >= 1 ? Integer.parseInt(args[0]) : 12341;
         try (ServerSocket serverSocket = new ServerSocket(registryPort)) {
@@ -52,7 +54,9 @@ public class Discovery extends Node implements Serializable {
                 }
                 else if (userInput.equals(UserCommands.LIST_PEERS.getCmd())
                         || userInput.equals(String.valueOf(UserCommands.LIST_PEERS.getCmdId()))) {
-                    Chord.printPeersInNetwork();
+                    registeredPeers.forEach(i -> {
+                        System.out.println(i.getPeerDescriptor());
+                    });
                 }
             }
         } catch (Exception e) {
@@ -70,20 +74,31 @@ public class Discovery extends Node implements Serializable {
     public void handleJoin(Socket messageSource, ClientConnection connDetails, TCPConnection tcpConnection) {
         try {
             String additionalProcessingInfo = "";
+            Peer bootstrapNode = returnRandomNodeForEntry();
             boolean success = connDetails.getRequestType().equals(RequestType.JOIN_CHORD)
                     ? Discovery.allowNodeToJoin(tcpConnection, connDetails)
                     : Discovery.allowNodeToLeave(tcpConnection, connDetails);
             boolean modifiedOverlay = false;
             if (connDetails.getRequestType().equals(RequestType.JOIN_CHORD)) {
-                additionalProcessingInfo = "Joining Chord...";
+                additionalProcessingInfo = "Bootstrapping node info returned...";
             } else if (connDetails.getRequestType().equals(RequestType.LEAVE_CHORD)) {
                 additionalProcessingInfo = "Leaving Chord...";
             }
             additionalProcessingInfo += (success ? "Successful. " :"Failed");
+            System.out.println(additionalProcessingInfo);
 
-            ServerResponse serverResponse = new ServerResponse(connDetails.getRequestType(), success ? StatusCode.SUCCESS : StatusCode.FAILURE, additionalProcessingInfo);
+            Message message = new Message(Protocol.BOOSTRAPPING_NODE_INFO, bootstrapNode);
 
+            if (bootstrapNode == null) {
+                System.out.println("First node in the chord overlay");
+                message = new Message(Protocol.ADAM_NODE_INF0, connDetails.getPeerNode().getPeerDescriptor());
 
+                //TODO: start process, FT adjustment specific to the first node
+            }
+            else {
+                System.out.println("Boostrap node : " +  bootstrapNode.getPeerDescriptor());
+            }
+            tcpConnection.getSenderThread().sendData(message);
 
         } catch (Exception e) {
             logger.severe("Error handling client in registry "+ e);
@@ -91,12 +106,45 @@ public class Discovery extends Node implements Serializable {
     }
 
     public static boolean allowNodeToJoin(TCPConnection connDetails, ClientConnection conn) {
-        PeerConnection peerConn = new PeerConnection(conn.getPeerNode(), connDetails);
-        return Chord.insertPeer(peerConn);
+        try {
+            if (registeredPeers.stream().anyMatch(i -> i.getPeerId() == conn.getPeerNode().getPeerId())) {
+                System.out.println("Peer ID collision detected");
+
+                Random rand = new Random();
+                int salt = rand.nextInt(10);
+
+                int newPeerId = conn.getPeerNode().getPeerId() * salt;
+
+                Message collisionResolve = new Message(Protocol.NEW_PEER_ID, newPeerId);
+                connDetails.getSenderThread().sendData(collisionResolve);
+            }
+            registeredPeers.add(conn.getPeerNode());
+            return true;
+        }
+        catch (Exception ex) {
+            return false;
+        }
     }
 
     public static boolean allowNodeToLeave(TCPConnection connDetails, ClientConnection conn) {
         PeerConnection peerConn = new PeerConnection(conn.getPeerNode(), connDetails);
-        return Chord.removePeer(peerConn);
+        try {
+            registeredPeers.removeIf(p -> p.getPeerId() == conn.getPeerNode().getPeerId());
+            return true;
+        }
+        catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private static Peer returnRandomNodeForEntry() {
+        int peerListSize = registeredPeers.size();
+
+        //no nodes currently in the network
+        if (peerListSize == 0) {
+            return null;
+        }
+        int randomPeerIndex = new Random().nextInt(peerListSize);
+        return registeredPeers.get(randomPeerIndex);
     }
 }
