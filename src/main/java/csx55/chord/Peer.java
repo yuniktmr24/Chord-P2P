@@ -468,9 +468,19 @@ public class Peer extends Node implements Serializable {
         // Schedule the fixFingers task
         scheduler.scheduleWithFixedDelay(() -> fixFingers(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
     }
+
+    /***
+     * Check and Fix the successor -> predecessor reference periodically
+     * Also, update the FT[1] at the predecessor if needed
+     */
     private void stabilize() {
         System.out.println("Running stabilize() routine");
     }
+
+    /***
+     * Fix/update the finger table. Pick one random entry to update at a time.
+     * Uses the lookup() to fix the entries
+     */
 
     private void fixFingers() {
         System.out.println("Running fixFingers() routine");
