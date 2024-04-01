@@ -12,7 +12,9 @@ public class ChordConfig {
 
     public static final int NUM_PEERS = 32; //to get k value = log(numberOfPeers)
 
-    public static final int STABLIZATION_INTERVAL = 1000;
+    public static final int MAINTENANCE_INTERVAL = 30; //in seconds
+
+    public static final String FILE_STORAGE_ROOT = "src/main/resources";
 
     private int kValue;
 

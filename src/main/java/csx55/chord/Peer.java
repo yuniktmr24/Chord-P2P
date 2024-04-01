@@ -4,20 +4,27 @@ import csx55.config.ChordConfig;
 import csx55.domain.*;
 import csx55.transport.TCPConnection;
 import csx55.transport.TCPServerThread;
+import csx55.util.FileUtils;
+import csx55.util.FileWrapper;
 
 import javax.swing.*;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.Serializable;
+import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+import java.util.stream.Stream;
 
 public class Peer extends Node implements Serializable {
+    private transient final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private static final long serialversionUID = 1L;
     private static final Logger logger = Logger.getLogger(Peer.class.getName());
 
@@ -39,6 +46,7 @@ public class Peer extends Node implements Serializable {
 
     private Map <String, TCPConnection> tcpCache = new HashMap<>();
 
+    private String fileStorageDirectory;
 
     private List <String> storedFilePaths = new ArrayList<>();
 
@@ -50,6 +58,7 @@ public class Peer extends Node implements Serializable {
         setNodeIp(nodeIp);
         setNodePort(nodePort);
         setAndGetPeerId();
+        setAndGetStorageDirectory();
     }
 
     public static void main (String [] args) {
@@ -70,6 +79,7 @@ public class Peer extends Node implements Serializable {
             Thread userThread = new Thread(() -> peer.userInput(peer));
             userThread.start();
 
+            peer.runMaintenance();
             while (true) {
 
             }
@@ -102,11 +112,49 @@ public class Peer extends Node implements Serializable {
 
 
     public void upload(String filePath) {
-        //read file. send to node responsible fore it
-        sendToNodeResponsibleForFile();
+        // OR: Processing lines as a Stream for more efficient memory usage
+        System.out.println("Reading file from path "+ filePath);
+
+        Path path = Paths.get(filePath);
+        String fileName = path.getFileName().toString();
+
+        try (Stream<String> stream = Files.lines(Paths.get(filePath))) {
+            //stream.forEach(System.out::println);
+            byte[] fileBytes = Files.readAllBytes(Paths.get(filePath));
+            FileWrapper file = new FileWrapper(fileBytes, fileName);
+            //send to node responsible fore it
+            sendToNodeResponsibleForFile(file);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
     }
 
-    private void sendToNodeResponsibleForFile() {
+    private void sendToNodeResponsibleForFile(FileWrapper file) {
+        int dataKey = file.hashCode();
+        FingerTableEntry possibleSuccessorEntry = this.fingerTable.lookup(dataKey);
+
+        String possibleSuccessor = possibleSuccessorEntry.getSuccessorNode();
+        if (possibleSuccessor.equals(this.getPeerDescriptor())) {
+            //store at self
+            storeIncomingFileBytes(file);
+
+        }
+        //got to send it to some other node
+        //request FT from other node and proceed from there
+        else {
+            if (tcpCache.containsKey(possibleSuccessor)) {
+                Message msg = new Message(Protocol.REQUEST_FINGER_TABLE, "");
+                try {
+                    fingerTableRequestLatch = new CountDownLatch(1);
+                    tcpCache.get(possibleSuccessor).getSenderThread().sendData(msg);
+                    fingerTableRequestLatch.await();
+                    System.out.println("Received FT from intermediary node");
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
     }
 
     public void download(String fileToDownloadWithExtension) {}
@@ -381,5 +429,50 @@ public class Peer extends Node implements Serializable {
     public void handleDiscoveryResponse(ServerResponse discoveryRes) {
         System.out.println("Received message from discovery with code "+ discoveryRes.getStatusCode().toString());
         System.out.println(discoveryRes.getAdditionalInfo());
+    }
+
+    private String setAndGetStorageDirectory() {
+        this.fileStorageDirectory = ChordConfig.FILE_STORAGE_ROOT
+                + "/tmp/"
+                + this.nodePort;
+        return this.fileStorageDirectory;
+    }
+    public void storeIncomingFileBytes(FileWrapper fileWrapper) {
+        String filePathString = this.fileStorageDirectory + "/" + fileWrapper.getFileName();
+        System.out.println("Writing file to path "+ filePathString);
+
+        Path filePath = Paths.get(filePathString);
+        try {
+            FileUtils.createDirectoryIfNotExists(filePath);
+            Files.write(filePath, fileWrapper.getFileBytes());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    //when download request reaches the terminal node
+    public void sendFileOverWire(TCPConnection connection) {
+
+    }
+
+    public void downloadFileToDevice () {}
+
+
+    /***
+    Chord maintenance protocols
+    */
+    public void runMaintenance() {
+        // Schedule the stabilize task
+        scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+
+        // Schedule the fixFingers task
+        scheduler.scheduleWithFixedDelay(() -> fixFingers(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+    }
+    private void stabilize() {
+        System.out.println("Running stabilize() routine");
+    }
+
+    private void fixFingers() {
+        System.out.println("Running fixFingers() routine");
     }
 }

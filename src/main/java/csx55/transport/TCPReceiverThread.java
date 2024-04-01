@@ -4,6 +4,7 @@ import csx55.chord.Discovery;
 import csx55.chord.FingerTable;
 import csx55.chord.Peer;
 import csx55.domain.*;
+import csx55.util.FileWrapper;
 
 import java.io.*;
 import java.net.Socket;
@@ -48,6 +49,11 @@ public class TCPReceiverThread implements Runnable {
             Serializable object;
             try {
                 object = readObject(ois);
+                if (object instanceof FileWrapper && node instanceof Peer) {
+                    FileWrapper file = (FileWrapper) object;
+                    // Here, you can process the file bytes, e.g., save them to a file
+                    ((Peer)node).storeIncomingFileBytes(file);
+                }
                 if (node instanceof Discovery) {
                     //could be made into an eventFactory
                     if (object instanceof ClientConnection) {

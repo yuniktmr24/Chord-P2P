@@ -5,6 +5,7 @@ import csx55.util.Tuple;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -109,5 +110,18 @@ public class FingerTable implements Serializable {
                 .filter(entry -> entry.getKeySpaceRange().between(nodeKey))
                 .findFirst();
         return entryOptional.get();
+    }
+
+    public FingerTableEntry lookup(Integer k) {
+        return ftEntries.stream()
+                .filter(entry -> entry.getKey() >= k)
+                .min(Comparator.comparingInt(FingerTableEntry::getKey))
+                .orElseGet(() ->
+                        // If no entry is found that is greater than or equal to k,
+                        // return the entry with the highest key.
+                        ftEntries.stream()
+                                .max(Comparator.comparingInt(FingerTableEntry::getKey))
+                                .orElseThrow()
+                );
     }
 }
