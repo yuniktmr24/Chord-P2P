@@ -41,19 +41,9 @@ public class FingerTable implements Serializable {
             //at last element now
             //circle back to the first entry
             else if (next == ftEntries.size()) {
-//                ft.setKeySpaceRange(
-//                        ft.getKey()
-//                                + ":"
-//                                + (ftEntries.get(0).getKey() - 1)
-//                );
                 ft.setKeySpaceRange(new Tuple(ft.getKey(), ftEntries.get(0).getKey() - 1));
             }
             else {
-//                ft.setKeySpaceRange(
-//                        ft.getKey()
-//                                + ":"
-//                                + (ftEntries.get(next).getKey() - 1)
-//                );
                 ft.setKeySpaceRange(new Tuple(ft.getKey(), ftEntries.get(next).getKey() - 1));
             }
             next++;
