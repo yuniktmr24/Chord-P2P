@@ -1,6 +1,9 @@
 package csx55.chord;
 
 import csx55.config.ChordConfig;
+import csx55.domain.ChordNode;
+import csx55.domain.PredecessorNode;
+import csx55.domain.SuccessorNode;
 import csx55.util.Tuple;
 
 import java.io.Serializable;
@@ -12,16 +15,21 @@ import java.util.stream.Collectors;
 
 public class FingerTable implements Serializable {
     private static final long serialversionUID = 1L;
-    private String predecessorNodeDesc;
 
-    private String successorNodeDesc;
+    private SuccessorNode successorNode;
+
+    private PredecessorNode predecessorNode;
+
+    private ChordNode currentNode;
+
 
     private List<FingerTableEntry> ftEntries = new ArrayList<>();
 
     private int numEntries;
 
     //32 bit, 64 bit ID space etc
-    public FingerTable() {
+    public FingerTable(int nodeId, String descriptor) {
+        currentNode = new ChordNode(descriptor, nodeId);
     }
 
     public void addEntry (FingerTableEntry entry) {
@@ -31,7 +39,7 @@ public class FingerTable implements Serializable {
         }
     }
 
-    private void computeKeySpaceRanges() {
+    public void computeKeySpaceRanges() {
         //idx = next node index
         int next = 1;
         for (FingerTableEntry ft: ftEntries) {
@@ -52,13 +60,30 @@ public class FingerTable implements Serializable {
 
 
     public void printFingerTable() {
-        System.out.println("Index \t\t Key_start \t\t Key_Range \t\t Successor Desc.");
+        // Check if the predecessor node is not null before trying to access its properties
+        if (this.getPredecessorNode() != null) {
+            System.out.printf("Predecessor Node Desc: %s | Predecessor Node ID: %d \n",
+                    this.getPredecessorNode().getDescriptor(),
+                    this.getPredecessorNode().getPeerId());
+        } else {
+            System.out.println("Predecessor Node Desc: null | Predecessor Node ID: null");
+        }
+
+        if (this.getSuccessorNode() != null) {
+            System.out.printf("Successor Node Desc: %s | Successor Node ID: %d \n",
+                    this.getSuccessorNode().getDescriptor(),
+                    this.getSuccessorNode().getPeerId());
+        } else {
+            System.out.println("Successor Node Desc: null | Successor Node ID: null");
+        }
+        System.out.println("Index \t Key_start \t\t Key_Range \t\t\t Successor Desc. \t\t Succesor ID");
         int index = 1;
         for (FingerTableEntry ft: ftEntries) {
-            String formatted = String.format("%d \t %d \t %s \t %s", index,
+            String formatted = String.format("%d \t %d \t %s \t %s \t %d", index,
                     ft.getKey(),
                     ft.getKeySpaceRange().toString(),
-                    ft.getSuccessorNode());
+                    ft.getSuccessorNodeDesc(),
+                    ft.getSuccessorNodeId());
             System.out.println(formatted);
             index++;
         }
@@ -67,33 +92,17 @@ public class FingerTable implements Serializable {
     //nodes this FT contains routing info to
     public List <String> findDistinctRoutableNodesInFT () {
         return ftEntries.stream()
-                .map(FingerTableEntry::getSuccessorNode)
+                .map(FingerTableEntry::getSuccessorNodeDesc)
                 .distinct()
                 .collect(Collectors.toList());
     }
 
-    public String getPredecessorNodeDesc() {
-        return predecessorNodeDesc;
-    }
-
-    public void setPredecessorNodeDesc(String predecessorNodeDesc) {
-        this.predecessorNodeDesc = predecessorNodeDesc;
-    }
-
-    public String getSuccessorNodeDesc() {
-        return successorNodeDesc;
-    }
-
-    public void setSuccessorNodeDesc(String successorNodeDesc) {
-        this.successorNodeDesc = successorNodeDesc;
-    }
 
     public List <FingerTableEntry> getEntriesSmallerThanNewNodeKey (int nodeKey) {
         return ftEntries.stream()
                 .filter(entry -> entry.getKey() < nodeKey) // Filter based on id
                 .collect(Collectors.toList());
     }
-
 
     public FingerTableEntry getEntryForWhichKeyIsInRange (int nodeKey) {
         Optional<FingerTableEntry> entryOptional = ftEntries.stream()
@@ -113,5 +122,45 @@ public class FingerTable implements Serializable {
                                 .max(Comparator.comparingInt(FingerTableEntry::getKey))
                                 .orElseThrow()
                 );
+    }
+
+    public List<FingerTableEntry> getFtEntries() {
+        return ftEntries;
+    }
+
+    public void setFtEntries(List<FingerTableEntry> ftEntries) {
+        this.ftEntries = ftEntries;
+    }
+
+    public int getNumEntries() {
+        return numEntries;
+    }
+
+    public void setNumEntries(int numEntries) {
+        this.numEntries = numEntries;
+    }
+
+    public SuccessorNode getSuccessorNode() {
+        return successorNode;
+    }
+
+    public void setSuccessorNode(SuccessorNode successorNode) {
+        this.successorNode = successorNode;
+    }
+
+    public PredecessorNode getPredecessorNode() {
+        return predecessorNode;
+    }
+
+    public void setPredecessorNode(PredecessorNode predecessorNode) {
+        this.predecessorNode = predecessorNode;
+    }
+
+    public ChordNode getCurrentNode() {
+        return currentNode;
+    }
+
+    public void setCurrentNode(ChordNode currentNode) {
+        this.currentNode = currentNode;
     }
 }

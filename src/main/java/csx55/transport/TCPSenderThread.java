@@ -34,6 +34,7 @@ public class TCPSenderThread implements Runnable {
                 try {
                     dout.writeObject(obj);
                     dout.flush();
+                    dout.reset();
                     //byte[] data = bos.toByteArray();
                     //sendData(data);
 //                } finally {

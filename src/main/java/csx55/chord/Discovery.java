@@ -113,7 +113,7 @@ public class Discovery extends Node implements Serializable {
                 Random rand = new Random();
                 int salt = rand.nextInt(10);
 
-                int newPeerId = conn.getPeerNode().getPeerId() * salt;
+                int newPeerId = (int)conn.getPeerNode().getPeerId() * salt;
 
                 Message collisionResolve = new Message(Protocol.NEW_PEER_ID, newPeerId);
                 connDetails.getSenderThread().sendData(collisionResolve);

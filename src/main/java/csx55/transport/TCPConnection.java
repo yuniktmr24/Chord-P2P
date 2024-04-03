@@ -12,6 +12,8 @@ public class TCPConnection {
     private TCPSenderThread senderThread;
     private TCPReceiverThread receiverThread;
 
+    private boolean started;
+
     public TCPConnection(Node node, Socket socket) throws IOException {
         this.node = node;
         this.socket = socket;
@@ -29,8 +31,11 @@ public class TCPConnection {
     }
 
     public void startConnection() {
-        new Thread(this.senderThread).start();
-        new Thread(this.receiverThread).start();
+        if (!this.started) {
+            new Thread(this.senderThread).start();
+            new Thread(this.receiverThread).start();
+            this.started = true;
+        }
     }
 
     public void closeConnection() throws IOException, InterruptedException {
@@ -54,5 +59,9 @@ public class TCPConnection {
 
     public Socket getSocket() {
         return socket;
+    }
+
+    public boolean isStarted() {
+        return started;
     }
 }
