@@ -328,6 +328,7 @@ public class Peer extends Node implements Serializable {
             System.out.println("Boostrap node info "+ bootstrapNode.getPeerDescriptor());
             //TODO : Create finger table here now during join()
             initFingerTable();
+            //TODO: stabilize boostrapNode before this and wait
             join(bootstrapNode);
             adjustFingerTable();
             //joinUsingBootstrapNode(bootstrapNode);
@@ -418,6 +419,7 @@ public class Peer extends Node implements Serializable {
         if (predecessorNode != null) {
             getFingerTable().setPredecessorNode((PredecessorNode) predecessorNode);
         }
+        stabilize();
         System.out.println("Finger table configured in adam node");
     }
 
@@ -494,21 +496,27 @@ public class Peer extends Node implements Serializable {
 
     }
 
-
     /***
     Chord maintenance protocols
     */
     public void runMaintenance() {
         // Schedule the stabilize task
-        //scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
 
         // Schedule the fixFingers task
-        //scheduler.scheduleWithFixedDelay(() -> fixFingers(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(() -> {
+            try {
+                fixFingers();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }, 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
     }
 
     /***
      * Check and Fix the successor -> predecessor reference periodically
      * Also, update the FT[1] at the predecessor if needed
+     * TODO: we also handle file migration here when successor is changed
      */
     private void stabilize() {
         if (successorNode != null && boostrapNodeFingerTable != null) {
@@ -535,6 +543,7 @@ public class Peer extends Node implements Serializable {
 
         System.out.println("Running stabilize() routine");
         //call notify
+        notify();
     }
 
     /***
@@ -777,6 +786,14 @@ public class Peer extends Node implements Serializable {
         for (int idx = ChordConfig.NUM_PEERS; idx >= 1; idx--) {
             SuccessorNode currentSuccessor = boostrapNodeFingerTable.getFtEntries().get(idx - 1).getSuccessorNode();
             int currentSuccessorId = currentSuccessor.getPeerId();
+
+            boolean isInCircularInterval = (currentNode.getPeerId() < targetKey) ?
+                    (currentSuccessorId > currentNode.getPeerId() && currentSuccessorId < targetKey) : // Normal case
+                    (currentSuccessorId > currentNode.getPeerId() || currentSuccessorId < targetKey); // Circular case
+
+            if (isInCircularInterval) {
+                return currentSuccessor;
+            }
             //account for terminal node problem here as well TODO
             if (currentSuccessorId > currentNode.getPeerId() && currentSuccessorId < targetKey) {
                 return currentSuccessor;
