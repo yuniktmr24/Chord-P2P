@@ -68,7 +68,7 @@ public class TCPReceiverThread implements Runnable {
                             ((Peer) node).sendFingerTable(connection);
                         }
                         else if (msg.getProtocol() == Protocol.SEND_SUCCESSOR_INFO) {
-                            ((Peer) node).ackSuccessorUpdateBecauseNull(connection, msg);
+                            //((Peer) node).ackSuccessorUpdateBecauseNull(connection, msg);
                         }
                         else if (msg.getProtocol() == Protocol.ACK) {
                             ((Peer) node).receiveAck();
@@ -80,6 +80,11 @@ public class TCPReceiverThread implements Runnable {
                         ((Peer) node).handleDiscoveryResponse((ServerResponse)object);
                     } else if (object instanceof FingerTable) {
                         ((Peer) node).receiveFingerTable((FingerTable) object);
+                    } else if (object instanceof StabilizationPayload) {
+                        ((Peer) node).contactPredecessorToStabilize(((StabilizationPayload) object)
+                                .getxNode());
+                    } else if (object instanceof UpdatePredecessorPayload) {
+                        ((Peer) node).handlePredecessorComms((UpdatePredecessorPayload) object);
                     }
                 }
             } catch (Exception ex) {

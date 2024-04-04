@@ -104,6 +104,12 @@ public class FingerTable implements Serializable {
                 .collect(Collectors.toList());
     }
 
+    public List <FingerTableEntry> getEntriesSmallerThanEqualToNewNodeKey (int nodeKey) {
+        return ftEntries.stream()
+                .filter(entry -> entry.getKey() <= nodeKey) // Filter based on id
+                .collect(Collectors.toList());
+    }
+
     public FingerTableEntry getEntryForWhichKeyIsInRange (int nodeKey) {
         Optional<FingerTableEntry> entryOptional = ftEntries.stream()
                 .filter(entry -> entry.getKeySpaceRange().between(nodeKey))
@@ -122,6 +128,14 @@ public class FingerTable implements Serializable {
                                 .max(Comparator.comparingInt(FingerTableEntry::getKey))
                                 .orElseThrow()
                 );
+    }
+
+    //xNode = newly Inserted node
+    public List <FingerTableEntry> getToBeModifiedFingersCircular(Integer current, Integer xNode) {
+        return ftEntries.stream()
+                .filter(entry -> (entry.getKey() > current ||
+                        entry.getKey() >= 0 && entry.getKey() <= xNode))
+                .collect(Collectors.toList());
     }
 
     public List<FingerTableEntry> getFtEntries() {

@@ -26,5 +26,7 @@ public interface Protocol {
     final int SEND_SUCCESSOR_INFO = 13;
 
     final int ACK = 14;
+
+    final int STABILIZE = 15;
 }
 
