@@ -55,6 +55,8 @@ public class Peer extends Node implements Serializable {
 
     private transient CountDownLatch fingerTableRequestLatch;
 
+    private transient Socket socketToRegistry;
+
     private transient CountDownLatch ackLatch;
 
     private int next;
@@ -73,10 +75,6 @@ public class Peer extends Node implements Serializable {
         ) {
 
             System.out.println("Connecting to server...");
-
-
-
-
             Peer peer = new Peer();
             peer.setServiceDiscovery(InetAddress.getLocalHost().getHostAddress(), peerServer.getLocalPort());
             //TODO: DLELTE THIS before PROD
@@ -104,6 +102,9 @@ public class Peer extends Node implements Serializable {
     //send registry message to discovery
     public void joinChord (Peer peer, Socket socketToRegistry) {
         try {
+            if (this.socketToRegistry == null) {
+                this.socketToRegistry = socketToRegistry;
+            }
             ClientConnection joinChord = new ClientConnection(RequestType.JOIN_CHORD, this);
 
             TCPConnection connection = new TCPConnection(peer, socketToRegistry);
@@ -111,7 +112,9 @@ public class Peer extends Node implements Serializable {
             connection.getSenderThread().sendObject(joinChord);
             connection.startConnection();
             //connection.getSenderThread().sendData();
-            this.discoveryConnection = connection;
+            if (this.discoveryConnection == null) {
+                this.discoveryConnection = connection;
+            }
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -330,12 +333,19 @@ public class Peer extends Node implements Serializable {
         if (msg.getProtocol() == Protocol.NEW_PEER_ID) {
             this.setNewPeerId((Integer) msg.getPayload());
             System.out.println("New peer ID applied after collision resolution");
+            //rejoin chord with new peer ID
+            ClientConnection joinChord = new ClientConnection(RequestType.JOIN_CHORD, this);
+            try {
+                this.discoveryConnection.getSenderThread().sendObject(joinChord);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
         else if ((msg.getProtocol() == Protocol.BOOSTRAPPING_NODE_INFO)) {
             System.out.println("Now entering chord overlay");
             Peer bootstrapNode = (Peer) msg.getPayload();
 
-            System.out.println("Boostrap node info "+ bootstrapNode.getPeerDescriptor());
+            System.out.println("Bootstrap node info "+ bootstrapNode.getPeerId());
             //TODO : Create finger table here now during join()
             initFingerTable();
             //TODO: stabilize boostrapNode before this and wait
@@ -431,7 +441,7 @@ public class Peer extends Node implements Serializable {
     public void receiveFingerTable (FingerTable boostrapNodeFingerTableRec) {
         this.boostrapNodeFingerTable = boostrapNodeFingerTableRec;
         this.fingerTableRequestLatch.countDown();
-        System.out.println("Received finger table from bootstrap node");
+        //System.out.println("Received finger table from bootstrap node");
     }
 
     public void handleDiscoveryResponse(ServerResponse discoveryRes) {

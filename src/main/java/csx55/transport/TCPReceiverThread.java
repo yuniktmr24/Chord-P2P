@@ -67,6 +67,9 @@ public class TCPReceiverThread implements Runnable {
                         if (msg.getProtocol() == Protocol.REQUEST_FINGER_TABLE) {
                             ((Peer) node).sendFingerTable(connection);
                         }
+//                        else if (msg.getProtocol() == Protocol.NEW_PEER_ID) {
+//                            ((Peer) node).setNewPeerId(connection);
+//                        }
                         else if (msg.getProtocol() == Protocol.SEND_SUCCESSOR_INFO) {
                             //((Peer) node).ackSuccessorUpdateBecauseNull(connection, msg);
                         }
