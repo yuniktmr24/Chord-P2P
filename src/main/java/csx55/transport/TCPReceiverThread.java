@@ -83,8 +83,10 @@ public class TCPReceiverThread implements Runnable {
                     } else if (object instanceof StabilizationPayload) {
                         ((Peer) node).contactPredecessorToStabilize(((StabilizationPayload) object)
                                 .getxNode());
-                    } else if (object instanceof UpdatePredecessorPayload) {
+                    } else if (object instanceof UpdatePredecessorPayload) { //successor will update its pred
                         ((Peer) node).handlePredecessorComms((UpdatePredecessorPayload) object);
+                    } else if (object instanceof UpdateSuccessorPayload) { //predecessor will update its successor
+                        ((Peer) node).handleSuccessorComms((UpdateSuccessorPayload) object);
                     }
                 }
             } catch (Exception ex) {

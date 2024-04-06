@@ -7,31 +7,31 @@ import java.io.Serializable;
 public class Tuple implements Serializable {
     private static final long serialversionUID = 1L;
     //all inclusive
-    private int start;
-    private int end;
+    private long start;
+    private long end;
 
-    public Tuple(int start, int end) {
+    public Tuple(long start, long end) {
         this.start = start;
         this.end = end;
     }
 
-    public int getStart() {
+    public long getStart() {
         return start;
     }
 
-    public void setStart(int start) {
+    public void setStart(long start) {
         this.start = start;
     }
 
-    public int getEnd() {
+    public long getEnd() {
         return end;
     }
 
-    public void setEnd(int end) {
+    public void setEnd(long end) {
         this.end = end;
     }
 
-    public boolean between(int comparing) {
+    public boolean between(long comparing) {
         if (comparing >= start && comparing <= end) {
             return true;
         }

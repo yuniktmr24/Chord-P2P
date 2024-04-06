@@ -6,9 +6,9 @@ public class ChordNode implements Serializable {
     private static final long serialversionUID = 1L;
     private String descriptor;
 
-    private int peerId;
+    private long peerId;
 
-    public ChordNode(String descriptor, int peerId) {
+    public ChordNode(String descriptor, long peerId) {
         this.descriptor = descriptor;
         this.peerId = peerId;
     }
@@ -21,11 +21,11 @@ public class ChordNode implements Serializable {
         this.descriptor = descriptor;
     }
 
-    public int getPeerId() {
+    public long getPeerId() {
         return peerId;
     }
 
-    public void setPeerId(int peerId) {
+    public void setPeerId(long peerId) {
         this.peerId = peerId;
     }
 }

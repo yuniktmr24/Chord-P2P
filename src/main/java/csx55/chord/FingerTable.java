@@ -28,7 +28,7 @@ public class FingerTable implements Serializable {
     private int numEntries;
 
     //32 bit, 64 bit ID space etc
-    public FingerTable(int nodeId, String descriptor) {
+    public FingerTable(long nodeId, String descriptor) {
         currentNode = new ChordNode(descriptor, nodeId);
     }
 
@@ -98,13 +98,13 @@ public class FingerTable implements Serializable {
     }
 
 
-    public List <FingerTableEntry> getEntriesSmallerThanNewNodeKey (int nodeKey) {
+    public List <FingerTableEntry> getEntriesSmallerThanNewNodeKey (long nodeKey) {
         return ftEntries.stream()
                 .filter(entry -> entry.getKey() < nodeKey) // Filter based on id
                 .collect(Collectors.toList());
     }
 
-    public List <FingerTableEntry> getEntriesSmallerThanEqualToNewNodeKey (int nodeKey) {
+    public List <FingerTableEntry> getEntriesSmallerThanEqualToNewNodeKey (long nodeKey) {
         return ftEntries.stream()
                 .filter(entry -> entry.getKey() <= nodeKey) // Filter based on id
                 .collect(Collectors.toList());
@@ -117,21 +117,37 @@ public class FingerTable implements Serializable {
         return entryOptional.get();
     }
 
-    public FingerTableEntry lookup(Integer k) {
+    public FingerTableEntry lookup(long k) {
         return ftEntries.stream()
                 .filter(entry -> entry.getKey() >= k)
-                .min(Comparator.comparingInt(FingerTableEntry::getKey))
+                .min(Comparator.comparingLong(FingerTableEntry::getKey))
                 .orElseGet(() ->
                         // If no entry is found that is greater than or equal to k,
                         // return the entry with the highest key.
                         ftEntries.stream()
-                                .max(Comparator.comparingInt(FingerTableEntry::getKey))
+                                .max(Comparator.comparingLong(FingerTableEntry::getKey))
+                                .orElseThrow()
+                );
+    }
+
+    //TODO: circularLookup?
+    public FingerTableEntry circularLookup(long k, long xNode) {
+        return ftEntries.stream()
+                .filter(entry -> entry.getKey() >= k
+                        ||
+                        entry.getKey() >= 0 && entry.getKey() <= xNode)
+                .min(Comparator.comparingLong(FingerTableEntry::getKey))
+                .orElseGet(() ->
+                        // If no entry is found that is greater than or equal to k,
+                        // return the entry with the highest key.
+                        ftEntries.stream()
+                                .max(Comparator.comparingLong(FingerTableEntry::getKey))
                                 .orElseThrow()
                 );
     }
 
     //xNode = newly Inserted node
-    public List <FingerTableEntry> getToBeModifiedFingersCircular(Integer current, Integer xNode) {
+    public List <FingerTableEntry> getToBeModifiedFingersCircular(long current, long xNode) {
         return ftEntries.stream()
                 .filter(entry -> (entry.getKey() > current ||
                         entry.getKey() >= 0 && entry.getKey() <= xNode))
@@ -176,5 +192,26 @@ public class FingerTable implements Serializable {
 
     public void setCurrentNode(ChordNode currentNode) {
         this.currentNode = currentNode;
+    }
+
+    public ChordNode findClosestPrecedingNode (long newnodeId) {
+        for (int i = 32; i <= 1; i--) {
+            if (nodeBetween(ftEntries.get(i).getSuccessorNodeId(), this.currentNode.getPeerId(), this.successorNode.getPeerId())) {
+                return ftEntries.get(i).getSuccessorNode();
+            }
+        }
+        if (newnodeId < this.currentNode.getPeerId()) {
+            return this.predecessorNode;
+        }
+        return this.currentNode;
+    }
+
+    private boolean nodeBetween (long newnodeId, long bootstrapnodeId, long successornodeId) {
+        if (bootstrapnodeId < successornodeId) {
+            return bootstrapnodeId < newnodeId && newnodeId < successornodeId;
+        }
+        else {
+            return newnodeId > bootstrapnodeId || newnodeId < successornodeId;
+        }
     }
 }

@@ -38,7 +38,7 @@ public class Peer extends Node implements Serializable {
 
     private int nodePort;
 
-    private Integer peerId = null;
+    private long peerId = -1;
 
     private ChordNode predecessorNode;
 
@@ -71,10 +71,18 @@ public class Peer extends Node implements Serializable {
         try (Socket socketToRegistry = new Socket("localhost", 12341);
              ServerSocket peerServer = new ServerSocket(0);
         ) {
+
             System.out.println("Connecting to server...");
+
+
+
 
             Peer peer = new Peer();
             peer.setServiceDiscovery(InetAddress.getLocalHost().getHostAddress(), peerServer.getLocalPort());
+            //TODO: DLELTE THIS before PROD
+            if (args.length > 0) {
+                peer.peerId = Long.parseLong(args[0]);
+            }
 
             Thread messageNodeServerThread = new Thread(new TCPServerThread(peer, peerServer));
             messageNodeServerThread.start();
@@ -218,8 +226,8 @@ public class Peer extends Node implements Serializable {
     }
 
 
-    public int getPeerId() {
-        this.peerId = peerId == null ? setAndGetPeerId() : this.peerId;
+    public long getPeerId() {
+        this.peerId = peerId == -1 ? setAndGetPeerId() : this.peerId;
         return this.peerId;
     }
 
@@ -300,7 +308,7 @@ public class Peer extends Node implements Serializable {
     }
 
 
-    public int setAndGetPeerId() {
+    public long setAndGetPeerId() {
         String toHash = nodeIp + ":" + nodePort;
         this.peerId = Math.abs(toHash.hashCode());
         return peerId;
@@ -370,7 +378,7 @@ public class Peer extends Node implements Serializable {
         }
 
         for (int i = 1; i <= numFtRows; i++) {
-            int index = (int) ((this.getPeerId() + (1 << (i - 1))) & 0xFFFFFFFFL);
+            long index = (long) ((this.getPeerId() + Math.pow(2, i - 1)) % Math.pow(2, ChordConfig.NUM_PEERS));
 
             FingerTableEntry finger = new FingerTableEntry(i, index,
                      successorNode.getDescriptor(),
@@ -494,17 +502,23 @@ public class Peer extends Node implements Serializable {
      */
     private void join (Peer bootstrapNode) throws InterruptedException {
         this.predecessorNode = null;
-        this.successorNode = findSuccessor(this.getPeerId(), bootstrapNode.getNodeIp(), bootstrapNode.getNodePort());
+        //this.successorNode = findSuccessor(this.getPeerId(), bootstrapNode.getNodeIp(), bootstrapNode.getNodePort());
+        this.successorNode = findSuccessorNode(this.getPeerId(), bootstrapNode.getNodeIp(), bootstrapNode.getNodePort());
+
+        TCPConnection conn = getTCPConnection(tcpCache,
+                this.successorNode.getDescriptor().split(":")[0],
+                Integer.parseInt(this.successorNode.getDescriptor().split(":")[1]));
+        tcpCache.putIfAbsent(this.successorNode.getDescriptor(), conn);
+        requestFingerTableFromBootstrapNode(conn);
+
+        this.predecessorNode = boostrapNodeFingerTable.getPredecessorNode();
         //after this contact predecessor of successor and make them update thier
         //successor pointter
         StabilizationPayload payload = new StabilizationPayload(new ChordNode(
                 this.getPeerDescriptor(),
                 this.getPeerId()
         ));
-        TCPConnection conn = getTCPConnection(tcpCache,
-                this.successorNode.getDescriptor().split(":")[0],
-                Integer.parseInt(this.successorNode.getDescriptor().split(":")[1]));
-        tcpCache.putIfAbsent(this.getPeerDescriptor(), conn);
+
         conn.getSenderThread().sendData(payload);
 
         //update everything in FT to point to successor node if key smaller than successor node
@@ -519,14 +533,14 @@ public class Peer extends Node implements Serializable {
             //ftEntries with keys between 0 and equals to successorNode.getPeerId()
             List <FingerTableEntry> fingersToUpdate = fingerTable.getToBeModifiedFingersCircular(this.getPeerId(), successorNode.getPeerId());
             for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                int fingerIndex = updatedFinger.getIndex();
+                long fingerIndex = updatedFinger.getIndex();
                 updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
             }
         }
         else {
             List <FingerTableEntry> fingersToUpdate = fingerTable.getEntriesSmallerThanEqualToNewNodeKey(successorNode.getPeerId());
             for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                int fingerIndex = updatedFinger.getIndex();
+                long fingerIndex = updatedFinger.getIndex();
                 updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
             }
         }
@@ -534,7 +548,9 @@ public class Peer extends Node implements Serializable {
 
     //JOIN -> contactPredecessorToStabize both need FT updates.
     //when current node role is successor to another node aka xNode
+    //note the other node still has to deal with updating its pred, succ
     public void contactPredecessorToStabilize (ChordNode xNode) {
+        //cold start problem
         if (predecessorNode == null) {
             predecessorNode = new PredecessorNode(xNode.getDescriptor(), xNode.getPeerId());
             fingerTable.setPredecessorNode((PredecessorNode) predecessorNode);
@@ -547,6 +563,21 @@ public class Peer extends Node implements Serializable {
                 notifySuccessor(xNodeConn);
             }
         }
+        else {
+            //well since the predecessor contacted us, we'll update our pred pointer first
+            //now contact our old predecessor and do actual stabilization in there
+            TCPConnection predConn = getTCPConnection(tcpCache, predecessorNode.getDescriptor().split(":")[0],
+                    Integer.parseInt(predecessorNode.getDescriptor().split(":")[1]));
+            tcpCache.putIfAbsent(predecessorNode.getDescriptor(), predConn);
+
+            PredecessorNode newPredecessor = new PredecessorNode(xNode.getDescriptor(), xNode.getPeerId());
+            //notifyPredecessor(predConn, (PredecessorNode) predecessorNode);
+            notifyPredecessor(predConn, newPredecessor);
+
+            this.predecessorNode = newPredecessor;
+            fingerTable.setPredecessorNode((PredecessorNode) predecessorNode);
+
+        }
         //update FT TODO
         //update everything in FT to point to successor node if key smaller than successor node
         //successor node is finalized here, so we don't do recursive lookups again
@@ -556,7 +587,7 @@ public class Peer extends Node implements Serializable {
             //ftEntries with keys between 0 and equals to successorNode.getPeerId()
             List <FingerTableEntry> fingersToUpdate = fingerTable.getToBeModifiedFingersCircular(this.getPeerId(), successorNode.getPeerId());
             for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                int fingerIndex = updatedFinger.getIndex();
+                long fingerIndex = updatedFinger.getIndex();
                 updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
                 //TODO migrate files to this succ node now
             }
@@ -564,7 +595,7 @@ public class Peer extends Node implements Serializable {
         else {
             List <FingerTableEntry> fingersToUpdate = fingerTable.getEntriesSmallerThanEqualToNewNodeKey(successorNode.getPeerId());
             for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                int fingerIndex = updatedFinger.getIndex();
+                long fingerIndex = updatedFinger.getIndex();
                 updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
                 //TODO mighrate files to this succ node now
                 //if ()
@@ -583,12 +614,62 @@ public class Peer extends Node implements Serializable {
         }
     }
 
+    //notifyPredecessor -> handleSuccessorComms - part of actual stabilize
+    private void notifyPredecessor(TCPConnection predConn, PredecessorNode predInfo) {
+        UpdateSuccessorPayload payload = new UpdateSuccessorPayload(new SuccessorNode(
+                predInfo.getDescriptor(), predInfo.getPeerId()
+        ));
+        try {
+            predConn.getSenderThread().sendData(payload);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void handleSuccessorComms (UpdateSuccessorPayload payload) {
+        System.out.println("Received comms from predecessor");
+        SuccessorNode succ = new SuccessorNode(payload.getxNode().getDescriptor(), payload.getxNode().getPeerId());
+        this.successorNode = succ;
+        fingerTable.setSuccessorNode(succ);
+        //lets update our FT since our successor pointer may have changed
+        fixAllFingers();
+        //TODO lets make our successor update its predecessor then
+//        TCPConnection connSucc  = getTCPConnection(tcpCache, payload.getxNode().getDescriptor().split(":")[0],
+//                Integer.parseInt(payload.getxNode().getDescriptor().split(":")[1]));
+//        notifySuccessor(connSucc);
+        //TODO: migrate data to successor
+    }
+
 
     //when predecessor messages you, handle it
     public void handlePredecessorComms (UpdatePredecessorPayload payload) {
+        System.out.println("Received comms from successor ");
         PredecessorNode pred = new PredecessorNode(payload.getxNode().getDescriptor(), payload.getxNode().getPeerId());
         this.predecessorNode = pred;
         fingerTable.setPredecessorNode(pred);
+    }
+
+    //fix all fingers in a given FT
+    private void fixAllFingers() {
+        if (isCircular(this.getPeerId(), successorNode.getPeerId())) {
+            //ftEntries with keys greater than peerId
+            //ftEntries with keys between 0 and equals to successorNode.getPeerId()
+            List <FingerTableEntry> fingersToUpdate = fingerTable.getToBeModifiedFingersCircular(this.getPeerId(), successorNode.getPeerId());
+            for (FingerTableEntry updatedFinger: fingersToUpdate) {
+                long fingerIndex = updatedFinger.getIndex();
+                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
+                //TODO migrate files to this succ node now
+            }
+        }
+        else {
+            List <FingerTableEntry> fingersToUpdate = fingerTable.getEntriesSmallerThanEqualToNewNodeKey(successorNode.getPeerId());
+            for (FingerTableEntry updatedFinger: fingersToUpdate) {
+                long fingerIndex = updatedFinger.getIndex();
+                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
+                //TODO mighrate files to this succ node now
+                //if ()
+            }
+        }
     }
 
 
@@ -649,7 +730,40 @@ public class Peer extends Node implements Serializable {
 
     }
 
-    private SuccessorNode findSuccessor (int targetKey, String bootstrapNodeIp, int bootstrapNodePort) {
+    private SuccessorNode findSuccessorNode (long targetId, String bootstrapNodeIp, int bootstrapNodePort) {
+        if (boostrapNodeFingerTable == null
+                || (!(bootstrapNodeIp + ":" + bootstrapNodePort).equals(boostrapNodeFingerTable.getCurrentNode().getDescriptor())
+        )) //stale fingerTable. reload ft for new load)
+        {
+            TCPConnection conn = getTCPConnection(tcpCache, bootstrapNodeIp, bootstrapNodePort);
+            tcpCache.put(bootstrapNodeIp + ":" + bootstrapNodePort, conn);
+            requestFingerTableFromBootstrapNode(conn);
+        }
+        long bootstrapNodeId = boostrapNodeFingerTable.getCurrentNode().getPeerId();
+        long successorId = boostrapNodeFingerTable.getSuccessorNode().getPeerId();
+
+        if (nodeBetween (targetId, bootstrapNodeId, successorId)) {
+            return new SuccessorNode(boostrapNodeFingerTable.getSuccessorNode().getDescriptor(),
+                    boostrapNodeFingerTable.getSuccessorNode().getPeerId());
+        }
+        else {
+            ChordNode precedingNode = boostrapNodeFingerTable.findClosestPrecedingNode(targetId);
+            return findSuccessorNode(targetId, precedingNode.getDescriptor().split(":")[0],
+                    Integer.parseInt(precedingNode.getDescriptor().split(":")[1]));
+        }
+    }
+
+    private boolean nodeBetween (long newnodeId, long bootstrapnodeId, long successornodeId) {
+        if (bootstrapnodeId < successornodeId) {
+            return bootstrapnodeId < newnodeId && newnodeId < successornodeId;
+        }
+        else {
+            return newnodeId > bootstrapnodeId || newnodeId < successornodeId;
+        }
+    }
+
+
+    private SuccessorNode findSuccessor (long targetKey, String bootstrapNodeIp, int bootstrapNodePort) {
         if (boostrapNodeFingerTable == null
         || (!(bootstrapNodeIp + ":" + bootstrapNodePort).equals(boostrapNodeFingerTable.getCurrentNode().getDescriptor())
             )) //stale fingerTable. reload ft for new load)
@@ -659,6 +773,7 @@ public class Peer extends Node implements Serializable {
             requestFingerTableFromBootstrapNode(conn);
         }
         FingerTableEntry ftEntry =  boostrapNodeFingerTable.lookup(targetKey);
+        //TODO : account for circular connection
         SuccessorNode bootstrapSuccessor = ftEntry.getSuccessorNode();
 
         boolean bootstrapNodeIsSuccessor = false;
@@ -679,8 +794,9 @@ public class Peer extends Node implements Serializable {
         }
         //first successor of lookup itself is greater than key then that's the successor
         else if (ftEntry.getIndex() == 1) {
-            return new SuccessorNode(boostrapNodeFingerTable.getCurrentNode().getDescriptor(),
-                    boostrapNodeFingerTable.getCurrentNode().getPeerId());
+            //TODO : What if predecessors are greater than new key?
+            return new SuccessorNode(boostrapNodeFingerTable.getSuccessorNode().getDescriptor(),
+                    boostrapNodeFingerTable.getSuccessorNode().getPeerId());
         }
         else {
             //update bootstrap FT table since we're routing to new node
@@ -699,7 +815,7 @@ public class Peer extends Node implements Serializable {
         // 3) that successor.predecessor should also notify us to update our predecessor
     }
 
-    public boolean isCircular(int targetId, int successorId) {
+    public boolean isCircular(long targetId, long successorId) {
         if (targetId > successorId) {
             return true;
         }

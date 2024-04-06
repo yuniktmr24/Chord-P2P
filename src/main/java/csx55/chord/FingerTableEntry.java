@@ -7,18 +7,18 @@ import java.io.Serializable;
 
 public class FingerTableEntry implements Serializable {
     private static final long serialversionUID = 1L;
-    private Integer key;
+    private long key;
 
     private String successorNodeDesc;
 
-    private int successorNodeId;
+    private long successorNodeId;
 
     private SuccessorNode successorNode;
     private Tuple keySpaceRange;
 
-    private Integer index;
+    private long index;
 
-    public FingerTableEntry(Integer index, Integer id, String successor, Integer successorNodeId) {
+    public FingerTableEntry(Integer index, long id, String successor, long successorNodeId) {
         this.index = index;
         this.key = id;
         this.successorNodeDesc = successor;
@@ -26,7 +26,7 @@ public class FingerTableEntry implements Serializable {
         successorNode = new SuccessorNode(successor, successorNodeId);
     }
 
-    public Integer getKey() {
+    public long getKey() {
         return key;
     }
 
@@ -52,7 +52,7 @@ public class FingerTableEntry implements Serializable {
         setSuccessorNodeId(successorNode.getPeerId());
     }
 
-    public Integer getIndex() {
+    public long getIndex() {
         return index;
     }
 
@@ -64,11 +64,11 @@ public class FingerTableEntry implements Serializable {
         this.successorNodeDesc = successorNodeDesc;
     }
 
-    public int getSuccessorNodeId() {
+    public long getSuccessorNodeId() {
         return successorNodeId;
     }
 
-    public void setSuccessorNodeId(int successorNodeId) {
+    public void setSuccessorNodeId(long successorNodeId) {
         this.successorNodeId = successorNodeId;
     }
 }
