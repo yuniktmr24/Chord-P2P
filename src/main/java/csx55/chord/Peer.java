@@ -246,7 +246,10 @@ public class Peer extends Node implements Serializable {
                 BufferedReader inputReader = new BufferedReader(new InputStreamReader(System.in));
                 String userInput = inputReader.readLine();
                 System.out.println("User input detected " + userInput);
-                boolean containsSpace = false, validUploadFilesCmd = false, validDownloadFilesCmd = false;
+                boolean containsSpace = false,
+                        validUploadFilesCmd = false,
+                        validDownloadFilesCmd = false,
+                        validCheckSuccessorCmd = false;
                 String uploadFilePath = ""; //local path to file to be uploaded
                 String downloadFileName = "";
                 if (userInput.contains(" ")) {
@@ -262,6 +265,14 @@ public class Peer extends Node implements Serializable {
                             userInput.startsWith(String.valueOf(UserCommands.DOWNLOAD_FILE.getCmdId()))) {
                         validDownloadFilesCmd = true;
                         downloadFileName = userInput.split(" ")[1];
+                    }
+                    else if (userInput.startsWith(UserCommands.CHECK_SUCCESSOR.getCmd()) ||
+                            userInput.toUpperCase().contains("check_successor") ||
+                            userInput.startsWith(String.valueOf(UserCommands.CHECK_SUCCESSOR.getCmdId()))) {
+                        validCheckSuccessorCmd = true;
+                        long key = Long.parseLong(userInput.split(" ")[1]);
+                        SuccessorNode successor = findSuccessorNode(key, this.nodeIp, this.nodePort);
+                        System.out.println(successor.getPeerId());
                     }
                 }
                 if (userInput.equals(UserCommands.EXIT.getCmd()) || userInput.equals(String.valueOf(UserCommands.EXIT.getCmdId()))) {

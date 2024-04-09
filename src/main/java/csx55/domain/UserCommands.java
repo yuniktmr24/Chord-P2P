@@ -21,6 +21,7 @@ public enum UserCommands {
 
     DOWNLOAD_FILE("download", 12, Collections.singletonList(NodeType.PEER)),
 
+    CHECK_SUCCESSOR("check_successor", 13, Collections.singletonList(NodeType.PEER)),
 
     EXIT("exit", -1, Arrays.asList(NodeType.DISCOVERY, NodeType.PEER));
     private final String cmd;
