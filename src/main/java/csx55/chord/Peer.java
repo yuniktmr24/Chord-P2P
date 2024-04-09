@@ -380,12 +380,14 @@ public class Peer extends Node implements Serializable {
 
     }
 
+    //fixes the local Finger table
+
     private void fixFinger() {
         System.out.println("Fixing fingers locally");
         for (int i = 32; i >= 1; i--) {
             FingerTableEntry entry = this.fingerTable.getFtEntries().get(i - 1);
             SuccessorNode successor = findSuccessorNode(entry.getKey(), this.nodeIp, this.nodePort);
-            System.out.println("Successor for "+ entry.getKey() + " is "+ successor.getPeerId());
+            //System.out.println("Successor for "+ entry.getKey() + " is "+ successor.getPeerId());
 
             String successorDesc = successor.getDescriptor();
             long succId = successor.getPeerId();
@@ -510,10 +512,13 @@ public class Peer extends Node implements Serializable {
     /***
     Chord maintenance protocols
     */
-    public void runMaintenance() {/*
+    public void runMaintenance() {
         // Schedule the stabilize task
-        scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        //scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        System.out.println("Fixing Fingers now");
+        scheduler.scheduleWithFixedDelay(() -> fixFinger(), 15, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
 
+        /*
         // Schedule the fixFingers task
         scheduler.scheduleWithFixedDelay(() -> {
             try {
