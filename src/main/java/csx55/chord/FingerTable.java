@@ -200,6 +200,10 @@ public class FingerTable implements Serializable {
                 return ftEntries.get(i).getSuccessorNode();
             }
         }
+        //so that key = 8 lookup at node = 8 returns 8 and doesn't run into stack overflow
+        if (newnodeId == this.currentNode.getPeerId()) {
+            return this.currentNode;
+        }
         if (newnodeId < this.currentNode.getPeerId()) {
             return this.predecessorNode;
         }

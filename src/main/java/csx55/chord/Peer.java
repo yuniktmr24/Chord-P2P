@@ -295,6 +295,9 @@ public class Peer extends Node implements Serializable {
                     System.out.println("Current Node ID : "+ this.getPeerId());
                     node.getFingerTable().printFingerTable();
                 }
+                else if (userInput.equals(UserCommands.FIX_FINGER.getCmd()) || userInput.equals(String.valueOf(UserCommands.FIX_FINGER.getCmdId()))) {
+                    fixFinger();
+                }
                 //for testing
                 else if (containsSpace && validUploadFilesCmd) {
                     node.upload(uploadFilePath);
@@ -363,7 +366,7 @@ public class Peer extends Node implements Serializable {
             join(bootstrapNode);
             adjustFingerTable();
             updateFingerTable();
-
+            //fixFinger();
         }
         else if ((msg.getProtocol() == Protocol.ADAM_NODE_INF0)) {
             System.out.println("First node in the chord");
@@ -375,6 +378,22 @@ public class Peer extends Node implements Serializable {
             //join(this);
         }
 
+    }
+
+    private void fixFinger() {
+        System.out.println("Fixing fingers locally");
+        for (int i = 32; i >= 1; i--) {
+            FingerTableEntry entry = this.fingerTable.getFtEntries().get(i - 1);
+            SuccessorNode successor = findSuccessorNode(entry.getKey(), this.nodeIp, this.nodePort);
+            System.out.println("Successor for "+ entry.getKey() + " is "+ successor.getPeerId());
+
+            String successorDesc = successor.getDescriptor();
+            long succId = successor.getPeerId();
+
+            this.fingerTable.getFtEntries().get(i - 1).setSuccessorNode(new SuccessorNode(successorDesc, succId));
+            this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeDesc(successorDesc);
+            this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeId(succId);
+        }
     }
 
 
@@ -603,25 +622,7 @@ public class Peer extends Node implements Serializable {
         //update everything in FT to point to successor node if key smaller than successor node
         //successor node is finalized here, so we don't do recursive lookups again
         //check for circular links as well
-        if (isCircular(this.getPeerId(), successorNode.getPeerId())) {
-            //ftEntries with keys greater than peerId
-            //ftEntries with keys between 0 and equals to successorNode.getPeerId()
-            List <FingerTableEntry> fingersToUpdate = fingerTable.getToBeModifiedFingersCircular(this.getPeerId(), successorNode.getPeerId());
-            for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                long fingerIndex = updatedFinger.getIndex();
-                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
-                //TODO migrate files to this succ node now
-            }
-        }
-        else {
-            List <FingerTableEntry> fingersToUpdate = fingerTable.getEntriesSmallerThanEqualToNewNodeKey(successorNode.getPeerId());
-            for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                long fingerIndex = updatedFinger.getIndex();
-                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
-                //TODO mighrate files to this succ node now
-                //if ()
-            }
-        }
+        updateFingerTable();
     }
 
     private void notifySuccessor(TCPConnection successorConn) {
@@ -653,7 +654,7 @@ public class Peer extends Node implements Serializable {
         this.successorNode = succ;
         fingerTable.setSuccessorNode(succ);
         //lets update our FT since our successor pointer may have changed
-        fixAllFingers();
+        updateFingerTable();
         //TODO lets make our successor update its predecessor then
 //        TCPConnection connSucc  = getTCPConnection(tcpCache, payload.getxNode().getDescriptor().split(":")[0],
 //                Integer.parseInt(payload.getxNode().getDescriptor().split(":")[1]));
@@ -668,29 +669,6 @@ public class Peer extends Node implements Serializable {
         PredecessorNode pred = new PredecessorNode(payload.getxNode().getDescriptor(), payload.getxNode().getPeerId());
         this.predecessorNode = pred;
         fingerTable.setPredecessorNode(pred);
-    }
-
-    //fix all fingers in a given FT
-    private void fixAllFingers() {
-        if (isCircular(this.getPeerId(), successorNode.getPeerId())) {
-            //ftEntries with keys greater than peerId
-            //ftEntries with keys between 0 and equals to successorNode.getPeerId()
-            List <FingerTableEntry> fingersToUpdate = fingerTable.getToBeModifiedFingersCircular(this.getPeerId(), successorNode.getPeerId());
-            for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                long fingerIndex = updatedFinger.getIndex();
-                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
-                //TODO migrate files to this succ node now
-            }
-        }
-        else {
-            List <FingerTableEntry> fingersToUpdate = fingerTable.getEntriesSmallerThanEqualToNewNodeKey(successorNode.getPeerId());
-            for (FingerTableEntry updatedFinger: fingersToUpdate) {
-                long fingerIndex = updatedFinger.getIndex();
-                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
-                //TODO mighrate files to this succ node now
-                //if ()
-            }
-        }
     }
 
 

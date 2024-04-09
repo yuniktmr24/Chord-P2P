@@ -23,6 +23,8 @@ public enum UserCommands {
 
     CHECK_SUCCESSOR("check_successor", 13, Collections.singletonList(NodeType.PEER)),
 
+    FIX_FINGER("manually_fix_finger", 14, Collections.singletonList(NodeType.PEER)),
+
     EXIT("exit", -1, Arrays.asList(NodeType.DISCOVERY, NodeType.PEER));
     private final String cmd;
     private final int cmdId;
