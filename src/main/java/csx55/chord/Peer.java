@@ -758,6 +758,11 @@ public class Peer extends Node implements Serializable {
         }
         else {
             ChordNode precedingNode = boostrapNodeFingerTable.findClosestPrecedingNode(targetId);
+            //BREAK RECURSION HERE
+            if (precedingNode.getPeerId() == boostrapNodeFingerTable.getCurrentNode().getPeerId()) {
+                return new SuccessorNode(boostrapNodeFingerTable.getCurrentNode().getDescriptor(),
+                        boostrapNodeFingerTable.getCurrentNode().getPeerId());
+            }
             return findSuccessorNode(targetId, precedingNode.getDescriptor().split(":")[0],
                     Integer.parseInt(precedingNode.getDescriptor().split(":")[1]));
         }

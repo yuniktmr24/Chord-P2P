@@ -203,7 +203,8 @@ public class FingerTable implements Serializable {
         if (newnodeId < this.currentNode.getPeerId()) {
             return this.predecessorNode;
         }
-        return this.currentNode;
+        return this.successorNode;
+        //return this.currentNode;
     }
 
     private boolean nodeBetween (long newnodeId, long bootstrapnodeId, long successornodeId) {
