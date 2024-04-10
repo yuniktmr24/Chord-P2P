@@ -73,9 +73,9 @@ public class TCPReceiverThread implements Runnable {
                         else if (msg.getProtocol() == Protocol.SEND_SUCCESSOR_INFO) {
                             //((Peer) node).ackSuccessorUpdateBecauseNull(connection, msg);
                         }
-                        else if (msg.getProtocol() == Protocol.ACK) {
-                            ((Peer) node).receiveAck();
-                        }
+//                        else if (msg.getProtocol() == Protocol.ACK) {
+//                            ((Peer) node).receiveAck();
+//                        }
                         else {
                             ((Peer) node).handleMessage(msg);
                         }

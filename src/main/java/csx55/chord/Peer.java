@@ -57,8 +57,6 @@ public class Peer extends Node implements Serializable {
 
     private transient Socket socketToRegistry;
 
-    private transient CountDownLatch ackLatch;
-
     private int next;
 
     private void setServiceDiscovery (String nodeIp, int nodePort) {
@@ -312,6 +310,7 @@ public class Peer extends Node implements Serializable {
         }
     }
 
+
     public String getNeighbors() {
         StringBuilder sb = new StringBuilder();
 
@@ -383,18 +382,20 @@ public class Peer extends Node implements Serializable {
     //fixes the local Finger table
 
     private void fixFinger() {
-        System.out.println("Fixing fingers locally");
-        for (int i = 32; i >= 1; i--) {
-            FingerTableEntry entry = this.fingerTable.getFtEntries().get(i - 1);
-            SuccessorNode successor = findSuccessorNode(entry.getKey(), this.nodeIp, this.nodePort);
-            //System.out.println("Successor for "+ entry.getKey() + " is "+ successor.getPeerId());
+        if (successorNode != null && successorNode.getPeerId() > this.peerId) {
+            System.out.println("Fixing fingers locally");
+            for (int i = 32; i >= 1; i--) {
+                FingerTableEntry entry = this.fingerTable.getFtEntries().get(i - 1);
+                SuccessorNode successor = findSuccessorNode(entry.getKey(), this.nodeIp, this.nodePort);
+                //System.out.println("Successor for "+ entry.getKey() + " is "+ successor.getPeerId());
 
-            String successorDesc = successor.getDescriptor();
-            long succId = successor.getPeerId();
+                String successorDesc = successor.getDescriptor();
+                long succId = successor.getPeerId();
 
-            this.fingerTable.getFtEntries().get(i - 1).setSuccessorNode(new SuccessorNode(successorDesc, succId));
-            this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeDesc(successorDesc);
-            this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeId(succId);
+                this.fingerTable.getFtEntries().get(i - 1).setSuccessorNode(new SuccessorNode(successorDesc, succId));
+                this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeDesc(successorDesc);
+                this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeId(succId);
+            }
         }
     }
 
@@ -515,7 +516,6 @@ public class Peer extends Node implements Serializable {
     public void runMaintenance() {
         // Schedule the stabilize task
         //scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
-        System.out.println("Fixing Fingers now");
         scheduler.scheduleWithFixedDelay(() -> fixFinger(), 15, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
 
         /*
@@ -572,7 +572,7 @@ public class Peer extends Node implements Serializable {
         updateFingerTable();
     }
 
-    private void updateFingerTable () {
+    private synchronized void updateFingerTable () {
         if (isCircular(this.getPeerId(), successorNode.getPeerId())) {
             //ftEntries with keys greater than peerId
             //ftEntries with keys between 0 and equals to successorNode.getPeerId()
@@ -627,7 +627,7 @@ public class Peer extends Node implements Serializable {
         //update everything in FT to point to successor node if key smaller than successor node
         //successor node is finalized here, so we don't do recursive lookups again
         //check for circular links as well
-        updateFingerTable();
+        //updateFingerTable();
     }
 
     private void notifySuccessor(TCPConnection successorConn) {
@@ -852,9 +852,6 @@ public class Peer extends Node implements Serializable {
         return conn;
     }
 
-    public void receiveAck() {
-        this.ackLatch.countDown();
-    }
 
 
     /***

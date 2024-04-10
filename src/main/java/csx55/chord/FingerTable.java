@@ -213,7 +213,7 @@ public class FingerTable implements Serializable {
 
     private boolean nodeBetween (long newnodeId, long bootstrapnodeId, long successornodeId) {
         if (bootstrapnodeId < successornodeId) {
-            return bootstrapnodeId < newnodeId && newnodeId < successornodeId;
+            return bootstrapnodeId <= newnodeId && newnodeId <= successornodeId;
         }
         else {
             return newnodeId > bootstrapnodeId || newnodeId < successornodeId;
