@@ -1,36 +1,37 @@
 package csx55.chord;
 
+import csx55.domain.SuccessorNode;
 import csx55.util.Tuple;
 
 import java.io.Serializable;
 
 public class FingerTableEntry implements Serializable {
     private static final long serialversionUID = 1L;
-    private Integer key;
+    private long key;
 
-    private String successorNode;
+    private String successorNodeDesc;
 
+    private long successorNodeId;
+
+    private SuccessorNode successorNode;
     private Tuple keySpaceRange;
 
-    public FingerTableEntry(Integer id, String nodeResponsible) {
+    private long index;
+
+    public FingerTableEntry(Integer index, long id, String successor, long successorNodeId) {
+        this.index = index;
         this.key = id;
-        this.successorNode = nodeResponsible;
+        this.successorNodeDesc = successor;
+        this.successorNodeId = successorNodeId;
+        successorNode = new SuccessorNode(successor, successorNodeId);
     }
 
-    public Integer getKey() {
+    public long getKey() {
         return key;
     }
 
     public void setKey(Integer key) {
         this.key = key;
-    }
-
-    public String getSuccessorNode() {
-        return successorNode;
-    }
-
-    public void setSuccessorNode(String successorNode) {
-        this.successorNode = successorNode;
     }
 
     public Tuple getKeySpaceRange() {
@@ -39,5 +40,35 @@ public class FingerTableEntry implements Serializable {
 
     public void setKeySpaceRange(Tuple range) {
         this.keySpaceRange = range;
+    }
+
+    public SuccessorNode getSuccessorNode() {
+        return successorNode;
+    }
+
+    public void setSuccessorNode(SuccessorNode successorNode) {
+        this.successorNode = successorNode;
+        setSuccessorNodeDesc(successorNode.getDescriptor());
+        setSuccessorNodeId(successorNode.getPeerId());
+    }
+
+    public long getIndex() {
+        return index;
+    }
+
+    public String getSuccessorNodeDesc() {
+        return successorNodeDesc;
+    }
+
+    public void setSuccessorNodeDesc(String successorNodeDesc) {
+        this.successorNodeDesc = successorNodeDesc;
+    }
+
+    public long getSuccessorNodeId() {
+        return successorNodeId;
+    }
+
+    public void setSuccessorNodeId(long successorNodeId) {
+        this.successorNodeId = successorNodeId;
     }
 }

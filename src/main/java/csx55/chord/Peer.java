@@ -6,8 +6,8 @@ import csx55.transport.TCPConnection;
 import csx55.transport.TCPServerThread;
 import csx55.util.FileUtils;
 import csx55.util.FileWrapper;
+import csx55.util.Tuple;
 
-import javax.swing.*;
 import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -38,11 +38,12 @@ public class Peer extends Node implements Serializable {
 
     private int nodePort;
 
-    private Integer peerId = null;
+    private long peerId = -1;
 
-    private String predecessorNode;
+    private ChordNode predecessorNode;
 
-    private String successorNode;
+    private ChordNode successorNode;
+
 
     private Map <String, TCPConnection> tcpCache = new HashMap<>();
 
@@ -53,6 +54,10 @@ public class Peer extends Node implements Serializable {
     private transient TCPConnection discoveryConnection;
 
     private transient CountDownLatch fingerTableRequestLatch;
+
+    private transient Socket socketToRegistry;
+
+    private int next;
 
     private void setServiceDiscovery (String nodeIp, int nodePort) {
         setNodeIp(nodeIp);
@@ -66,10 +71,14 @@ public class Peer extends Node implements Serializable {
         try (Socket socketToRegistry = new Socket("localhost", 12341);
              ServerSocket peerServer = new ServerSocket(0);
         ) {
-            System.out.println("Connecting to server...");
 
+            System.out.println("Connecting to server...");
             Peer peer = new Peer();
             peer.setServiceDiscovery(InetAddress.getLocalHost().getHostAddress(), peerServer.getLocalPort());
+            //TODO: DLELTE THIS before PROD
+            if (args.length > 0) {
+                peer.peerId = Long.parseLong(args[0]);
+            }
 
             Thread messageNodeServerThread = new Thread(new TCPServerThread(peer, peerServer));
             messageNodeServerThread.start();
@@ -91,6 +100,9 @@ public class Peer extends Node implements Serializable {
     //send registry message to discovery
     public void joinChord (Peer peer, Socket socketToRegistry) {
         try {
+            if (this.socketToRegistry == null) {
+                this.socketToRegistry = socketToRegistry;
+            }
             ClientConnection joinChord = new ClientConnection(RequestType.JOIN_CHORD, this);
 
             TCPConnection connection = new TCPConnection(peer, socketToRegistry);
@@ -98,7 +110,9 @@ public class Peer extends Node implements Serializable {
             connection.getSenderThread().sendObject(joinChord);
             connection.startConnection();
             //connection.getSenderThread().sendData();
-            this.discoveryConnection = connection;
+            if (this.discoveryConnection == null) {
+                this.discoveryConnection = connection;
+            }
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -131,29 +145,32 @@ public class Peer extends Node implements Serializable {
     }
 
     private void sendToNodeResponsibleForFile(FileWrapper file) {
-        int dataKey = file.hashCode();
+        int dataKey = Math.abs(file.hashCode());
         FingerTableEntry possibleSuccessorEntry = this.fingerTable.lookup(dataKey);
 
-        String possibleSuccessor = possibleSuccessorEntry.getSuccessorNode();
+        String possibleSuccessor = possibleSuccessorEntry.getSuccessorNode().getDescriptor();
         if (possibleSuccessor.equals(this.getPeerDescriptor())) {
-            //store at self
+            //store at self //SAME NODE STORAGE
             storeIncomingFileBytes(file);
 
         }
         //got to send it to some other node
         //request FT from other node and proceed from there
         else {
-            if (tcpCache.containsKey(possibleSuccessor)) {
-                Message msg = new Message(Protocol.REQUEST_FINGER_TABLE, "");
-                try {
-                    fingerTableRequestLatch = new CountDownLatch(1);
-                    tcpCache.get(possibleSuccessor).getSenderThread().sendData(msg);
-                    fingerTableRequestLatch.await();
-                    System.out.println("Received FT from intermediary node");
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
+            SuccessorNode successor = findSuccessor(dataKey,
+                    possibleSuccessorEntry.getSuccessorNode().getDescriptor().split(":")[0],
+                    Integer.parseInt(possibleSuccessorEntry.getSuccessorNode().getDescriptor().split(":")[1]));
+
+            TCPConnection connToSuccessor = getTCPConnection(tcpCache,
+                    successor.getDescriptor().split(":")[0],
+                    Integer.parseInt(successor.getDescriptor().split(":")[1]));
+
+            try {
+                connToSuccessor.getSenderThread().sendData(file);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
+
         }
     }
 
@@ -164,7 +181,7 @@ public class Peer extends Node implements Serializable {
     }
 
     public void initFingerTable() {
-        this.fingerTable = new FingerTable();
+        this.fingerTable = new FingerTable(this.getPeerId(), this.getPeerDescriptor());
     }
 
     public void setFingerTable(FingerTable fingerTable) {
@@ -210,8 +227,8 @@ public class Peer extends Node implements Serializable {
     }
 
 
-    public int getPeerId() {
-        this.peerId = peerId == null ? setAndGetPeerId() : this.peerId;
+    public long getPeerId() {
+        this.peerId = peerId == -1 ? setAndGetPeerId() : this.peerId;
         return this.peerId;
     }
 
@@ -227,7 +244,10 @@ public class Peer extends Node implements Serializable {
                 BufferedReader inputReader = new BufferedReader(new InputStreamReader(System.in));
                 String userInput = inputReader.readLine();
                 System.out.println("User input detected " + userInput);
-                boolean containsSpace = false, validUploadFilesCmd = false, validDownloadFilesCmd = false;
+                boolean containsSpace = false,
+                        validUploadFilesCmd = false,
+                        validDownloadFilesCmd = false,
+                        validCheckSuccessorCmd = false;
                 String uploadFilePath = ""; //local path to file to be uploaded
                 String downloadFileName = "";
                 if (userInput.contains(" ")) {
@@ -243,6 +263,14 @@ public class Peer extends Node implements Serializable {
                             userInput.startsWith(String.valueOf(UserCommands.DOWNLOAD_FILE.getCmdId()))) {
                         validDownloadFilesCmd = true;
                         downloadFileName = userInput.split(" ")[1];
+                    }
+                    else if (userInput.startsWith(UserCommands.CHECK_SUCCESSOR.getCmd()) ||
+                            userInput.toUpperCase().contains("check_successor") ||
+                            userInput.startsWith(String.valueOf(UserCommands.CHECK_SUCCESSOR.getCmdId()))) {
+                        validCheckSuccessorCmd = true;
+                        long key = Long.parseLong(userInput.split(" ")[1]);
+                        SuccessorNode successor = findSuccessorNode(key, this.nodeIp, this.nodePort);
+                        System.out.println(successor.getPeerId());
                     }
                 }
                 if (userInput.equals(UserCommands.EXIT.getCmd()) || userInput.equals(String.valueOf(UserCommands.EXIT.getCmdId()))) {
@@ -265,6 +293,9 @@ public class Peer extends Node implements Serializable {
                     System.out.println("Current Node ID : "+ this.getPeerId());
                     node.getFingerTable().printFingerTable();
                 }
+                else if (userInput.equals(UserCommands.FIX_FINGER.getCmd()) || userInput.equals(String.valueOf(UserCommands.FIX_FINGER.getCmdId()))) {
+                    fixFinger();
+                }
                 //for testing
                 else if (containsSpace && validUploadFilesCmd) {
                     node.upload(uploadFilePath);
@@ -279,19 +310,23 @@ public class Peer extends Node implements Serializable {
         }
     }
 
+
     public String getNeighbors() {
         StringBuilder sb = new StringBuilder();
 
-        sb.append("Predecessor "+ predecessorNode);
-        sb.append(" | Successor" + successorNode);
+        sb.append("Predecessor "+ predecessorNode.getDescriptor());
+        sb.append(" | Successor" + successorNode.getDescriptor());
+        sb.append("\n");
+        sb.append("Predecessor id "+ predecessorNode.getPeerId());
+        sb.append(" | Successor id " + successorNode.getPeerId());
 
         return sb.toString();
     }
 
 
-    public int setAndGetPeerId() {
+    public long setAndGetPeerId() {
         String toHash = nodeIp + ":" + nodePort;
-        this.peerId = toHash.hashCode();
+        this.peerId = Math.abs(toHash.hashCode());
         return peerId;
     }
 
@@ -307,102 +342,108 @@ public class Peer extends Node implements Serializable {
         this.storedFilePaths.add(storedFilePaths);
     }
 
-    public void handleMessage(Message msg) {
+    public void handleMessage(Message msg) throws InterruptedException {
         if (msg.getProtocol() == Protocol.NEW_PEER_ID) {
             this.setNewPeerId((Integer) msg.getPayload());
             System.out.println("New peer ID applied after collision resolution");
+            //rejoin chord with new peer ID
+            ClientConnection joinChord = new ClientConnection(RequestType.JOIN_CHORD, this);
+            try {
+                this.discoveryConnection.getSenderThread().sendObject(joinChord);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
         else if ((msg.getProtocol() == Protocol.BOOSTRAPPING_NODE_INFO)) {
             System.out.println("Now entering chord overlay");
             Peer bootstrapNode = (Peer) msg.getPayload();
 
-            System.out.println("Boostrap node info "+ bootstrapNode.getPeerDescriptor());
+            System.out.println("Bootstrap node info "+ bootstrapNode.getPeerId());
             //TODO : Create finger table here now during join()
-            joinUsingBootstrapNode(bootstrapNode);
-
+            initFingerTable();
+            //TODO: stabilize boostrapNode before this and wait
+            join(bootstrapNode);
+            adjustFingerTable();
+            updateFingerTable();
+            //fixFinger();
         }
         else if ((msg.getProtocol() == Protocol.ADAM_NODE_INF0)) {
             System.out.println("First node in the chord");
             //no neighbors when adam node. (Only node in the ring)
-            setNeighbors(this.getPeerDescriptor(), this.getPeerDescriptor());
-            adjustAdamFingerTable();
+            //setNeighbors(new PredecessorNode(this.getPeerDescriptor(), this.getPeerId()),
+                    //new SuccessorNode(this.getPeerDescriptor(), this.getPeerId()));
+            adjustFingerTable();
+            //no need to find successor, pred when only node in ring
+            //join(this);
         }
 
     }
 
-    private void joinUsingBootstrapNode(Peer bootstrapNode) {
-        try {
-            //already established connection to node then
-            if (tcpCache.containsKey(bootstrapNode.getPeerDescriptor())) {
-                TCPConnection connection = tcpCache.get(bootstrapNode.getPeerDescriptor());
+    //fixes the local Finger table
 
-                //TODO: now start creating the FT
-                initFingerTable();
-                requestFingerTableFromBootstrapNode(connection);
+    private void fixFinger() {
+        if (successorNode != null && successorNode.getPeerId() > this.peerId) {
+            System.out.println("Fixing fingers locally");
+            for (int i = 32; i >= 1; i--) {
+                FingerTableEntry entry = this.fingerTable.getFtEntries().get(i - 1);
+                SuccessorNode successor = findSuccessorNode(entry.getKey(), this.nodeIp, this.nodePort);
+                //System.out.println("Successor for "+ entry.getKey() + " is "+ successor.getPeerId());
+
+                String successorDesc = successor.getDescriptor();
+                long succId = successor.getPeerId();
+
+                this.fingerTable.getFtEntries().get(i - 1).setSuccessorNode(new SuccessorNode(successorDesc, succId));
+                this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeDesc(successorDesc);
+                this.fingerTable.getFtEntries().get(i - 1).setSuccessorNodeId(succId);
             }
-            else {
-                Socket bootstrapNodeSocket = new Socket(bootstrapNode.getNodeIp(), bootstrapNode.getNodePort());
-                TCPConnection connection = new TCPConnection(this, bootstrapNodeSocket);
-                connection.startConnection();
-
-                tcpCache.put(bootstrapNode.getPeerDescriptor(), connection);
-
-                //TODO COMPLETE: now start creating the FT
-                requestFingerTableFromBootstrapNode(connection);
-                adjustFingerTableUsingBootstrapNode();
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
-    private void setNeighbors (String pred, String succ) {
+
+
+    private void setNeighbors (PredecessorNode pred, SuccessorNode succ) {
         this.predecessorNode = pred;
         this.successorNode = succ;
     }
 
-    //IMPORTANT: 1-Based indexing scheme for FT
-    private void adjustFingerTableUsingBootstrapNode() {
-        List <String> distinctRoutes = this.boostrapNodeFingerTable.findDistinctRoutableNodesInFT();
-        if (distinctRoutes.size() == 1) {
-            System.out.println("The Boostrap FT is at the End of Ring, thus routes to a single node");
-            //more logic
-            List <FingerTableEntry> candidateStorageEntries = boostrapNodeFingerTable.getEntriesSmallerThanNewNodeKey(this.getPeerId());
-
-            //update FT in the predecessor node
-            //migrate keys to the new node
-
-
-        }
-        else {
-
-        }
-    }
 
     //IMPORTANT: 1-Based indexing scheme for FT
 
-    private void adjustAdamFingerTable() {
+    private void adjustFingerTable() {
         int numFtRows = ChordConfig.NUM_PEERS;
         initFingerTable();
 
         //only node in the system, so succ, pred is itself
-        getFingerTable().setPredecessorNodeDesc(this.getPeerDescriptor());
-        getFingerTable().setSuccessorNodeDesc(this.getPeerDescriptor());
+        //getFingerTable().setPredecessorNode(new PredecessorNode(this.nodeIp, this.nodePort));
+        //getFingerTable().setSuccessorNode(new SuccessorNode(this.nodeIp, this.nodePort));
+
+        if (successorNode == null) {
+            successorNode = new SuccessorNode(this.getPeerDescriptor(), this.getPeerId());
+        }
 
         for (int i = 1; i <= numFtRows; i++) {
-            int index = (int) ((this.getPeerId() + (int) Math.pow(2, i - 1)) % Math.pow(2, numFtRows));
-            FingerTableEntry finger = new FingerTableEntry(index, this.getPeerDescriptor());
+            long index = (long) ((this.getPeerId() + Math.pow(2, i - 1)) % Math.pow(2, ChordConfig.NUM_PEERS));
+
+            FingerTableEntry finger = new FingerTableEntry(i, index,
+                     successorNode.getDescriptor(),
+                     successorNode.getPeerId());
             getFingerTable().addEntry(finger);
         }
+        if (successorNode != null) {
+            getFingerTable().setSuccessorNode((SuccessorNode) successorNode);
+        }
+        if (predecessorNode != null) {
+            getFingerTable().setPredecessorNode((PredecessorNode) predecessorNode);
+        }
+        //stabilize();
         System.out.println("Finger table configured in adam node");
     }
 
     private void requestFingerTableFromBootstrapNode(TCPConnection connectionToBootstrapNode) {
-        Message msg = new Message(Protocol.REQUEST_FINGER_TABLE, "");
+        Message msg = new Message(Protocol.REQUEST_FINGER_TABLE, this.getPeerDescriptor() + ","  + this.getPeerId() );
         try {
             fingerTableRequestLatch = new CountDownLatch(1);
             connectionToBootstrapNode.getSenderThread().sendData(msg);
             fingerTableRequestLatch.await();
-            System.out.println("Received finger table from bootstrap node");
 
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
@@ -410,6 +451,15 @@ public class Peer extends Node implements Serializable {
     }
 
     public synchronized void sendFingerTable (TCPConnection connectionToRequestingNode) {
+//        System.out.println("Received Finger Table request");
+//        String newNodeDesc = msg.getPayload().toString().split(",")[0];
+//        String newNodeId = msg.getPayload().toString().split(",")[1];
+//        //as in adam node
+//        //add new node to successor chain
+//        if (predecessorNode == null && successorNode == null) {
+//            successorNode = new SuccessorNode(newNodeDesc, Integer.parseInt(newNodeId));
+//            this.fingerTable.setSuccessorNode((SuccessorNode) successorNode);
+//        }
         if (this.fingerTable == null) {
             initFingerTable();
             //might need to populate the table too
@@ -421,9 +471,10 @@ public class Peer extends Node implements Serializable {
         }
     }
 
-    public void receiveFingerTable (FingerTable boostrapNodeFingerTable) {
-        this.boostrapNodeFingerTable = boostrapNodeFingerTable;
+    public void receiveFingerTable (FingerTable boostrapNodeFingerTableRec) {
+        this.boostrapNodeFingerTable = boostrapNodeFingerTableRec;
         this.fingerTableRequestLatch.countDown();
+        //System.out.println("Received finger table from bootstrap node");
     }
 
     public void handleDiscoveryResponse(ServerResponse discoveryRes) {
@@ -455,26 +506,386 @@ public class Peer extends Node implements Serializable {
 
     }
 
-    public void downloadFileToDevice () {}
+    public void downloadFileToDevice () {
 
+    }
 
     /***
     Chord maintenance protocols
     */
     public void runMaintenance() {
         // Schedule the stabilize task
-        scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        //scheduler.scheduleWithFixedDelay(() -> stabilize(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(() -> fixFinger(), 15, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
 
+        /*
         // Schedule the fixFingers task
-        scheduler.scheduleWithFixedDelay(() -> fixFingers(), 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(() -> {
+            try {
+                fixFingers();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }, 0, ChordConfig.MAINTENANCE_INTERVAL, TimeUnit.SECONDS);
+        */
     }
+
+
+    /***
+     * THE METHODS BELOW ARE IMPLEMENTED AS SPECIFIED IN THE ORIGINAL CHORD
+     * PROTOCOL PAPER
+     *
+     * Source: https://pdos.csail.mit.edu/papers/ton:chord/paper-ton.pdf
+     * Citation: Stoica, Ion, et al. "Chord: a scalable peer-to-peer lookup protocol for internet applications.
+     * " IEEE/ACM Transactions on networking 11.1 (2003): 17-32.
+     *
+     */
+
+
+    /***
+     * Join the overlay using bootstrap node
+     */
+    private void join (Peer bootstrapNode) throws InterruptedException {
+        this.predecessorNode = null;
+        //this.successorNode = findSuccessor(this.getPeerId(), bootstrapNode.getNodeIp(), bootstrapNode.getNodePort());
+        this.successorNode = findSuccessorNode(this.getPeerId(), bootstrapNode.getNodeIp(), bootstrapNode.getNodePort());
+
+        TCPConnection conn = getTCPConnection(tcpCache,
+                this.successorNode.getDescriptor().split(":")[0],
+                Integer.parseInt(this.successorNode.getDescriptor().split(":")[1]));
+        tcpCache.putIfAbsent(this.successorNode.getDescriptor(), conn);
+        requestFingerTableFromBootstrapNode(conn);
+
+        this.predecessorNode = boostrapNodeFingerTable.getPredecessorNode();
+        //after this contact predecessor of successor and make them update thier
+        //successor pointter
+        StabilizationPayload payload = new StabilizationPayload(new ChordNode(
+                this.getPeerDescriptor(),
+                this.getPeerId()
+        ));
+
+        conn.getSenderThread().sendData(payload);
+
+        //update everything in FT to point to successor node if key smaller than successor node
+        //successor node is finalized here, so we don't do recursive lookups again
+        //check for circular links as well
+        updateFingerTable();
+    }
+
+    private synchronized void updateFingerTable () {
+        if (isCircular(this.getPeerId(), successorNode.getPeerId())) {
+            //ftEntries with keys greater than peerId
+            //ftEntries with keys between 0 and equals to successorNode.getPeerId()
+            List <FingerTableEntry> fingersToUpdate = fingerTable.getToBeModifiedFingersCircular(this.getPeerId(), successorNode.getPeerId());
+            for (FingerTableEntry updatedFinger: fingersToUpdate) {
+                long fingerIndex = updatedFinger.getIndex();
+                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
+            }
+        }
+        else {
+            List <FingerTableEntry> fingersToUpdate = fingerTable.getEntriesSmallerThanEqualToNewNodeKey(successorNode.getPeerId());
+            for (FingerTableEntry updatedFinger: fingersToUpdate) {
+                long fingerIndex = updatedFinger.getIndex();
+                updatedFinger.setSuccessorNode((SuccessorNode) successorNode);
+            }
+        }
+    }
+
+    //JOIN -> contactPredecessorToStabize both need FT updates.
+    //when current node role is successor to another node aka xNode
+    //note the other node still has to deal with updating its pred, succ
+    public void contactPredecessorToStabilize (ChordNode xNode) {
+        //cold start problem
+        if (predecessorNode == null) {
+            predecessorNode = new PredecessorNode(xNode.getDescriptor(), xNode.getPeerId());
+            fingerTable.setPredecessorNode((PredecessorNode) predecessorNode);
+            if (successorNode.getDescriptor().equals(this.getPeerDescriptor())) {
+                successorNode = new SuccessorNode(xNode.getDescriptor(), xNode.getPeerId());
+                fingerTable.setSuccessorNode((SuccessorNode) successorNode);
+                //notify that xNode so that they can now update their predecessor
+                TCPConnection xNodeConn = getTCPConnection(tcpCache, xNode.getDescriptor().split(":")[0], Integer.parseInt(xNode.getDescriptor().split(":")[1]));
+                tcpCache.putIfAbsent(xNode.getDescriptor(), xNodeConn);
+                notifySuccessor(xNodeConn);
+            }
+        }
+        else {
+            //well since the predecessor contacted us, we'll update our pred pointer first
+            //now contact our old predecessor and do actual stabilization in there
+            TCPConnection predConn = getTCPConnection(tcpCache, predecessorNode.getDescriptor().split(":")[0],
+                    Integer.parseInt(predecessorNode.getDescriptor().split(":")[1]));
+            tcpCache.putIfAbsent(predecessorNode.getDescriptor(), predConn);
+
+            PredecessorNode newPredecessor = new PredecessorNode(xNode.getDescriptor(), xNode.getPeerId());
+            //notifyPredecessor(predConn, (PredecessorNode) predecessorNode);
+            notifyPredecessor(predConn, newPredecessor);
+
+            this.predecessorNode = newPredecessor;
+            fingerTable.setPredecessorNode((PredecessorNode) predecessorNode);
+
+        }
+        //update FT TODO
+        //update everything in FT to point to successor node if key smaller than successor node
+        //successor node is finalized here, so we don't do recursive lookups again
+        //check for circular links as well
+        //updateFingerTable();
+    }
+
+    private void notifySuccessor(TCPConnection successorConn) {
+        UpdatePredecessorPayload payload = new UpdatePredecessorPayload(new PredecessorNode(
+                this.getPeerDescriptor(), this.getPeerId()
+        ));
+        try {
+            successorConn.getSenderThread().sendData(payload);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    //notifyPredecessor -> handleSuccessorComms - part of actual stabilize
+    private void notifyPredecessor(TCPConnection predConn, PredecessorNode predInfo) {
+        UpdateSuccessorPayload payload = new UpdateSuccessorPayload(new SuccessorNode(
+                predInfo.getDescriptor(), predInfo.getPeerId()
+        ));
+        try {
+            predConn.getSenderThread().sendData(payload);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void handleSuccessorComms (UpdateSuccessorPayload payload) {
+        System.out.println("Received comms from predecessor");
+        SuccessorNode succ = new SuccessorNode(payload.getxNode().getDescriptor(), payload.getxNode().getPeerId());
+        this.successorNode = succ;
+        fingerTable.setSuccessorNode(succ);
+        //lets update our FT since our successor pointer may have changed
+        updateFingerTable();
+        //TODO lets make our successor update its predecessor then
+//        TCPConnection connSucc  = getTCPConnection(tcpCache, payload.getxNode().getDescriptor().split(":")[0],
+//                Integer.parseInt(payload.getxNode().getDescriptor().split(":")[1]));
+//        notifySuccessor(connSucc);
+        //TODO: migrate data to successor
+    }
+
+
+    //when predecessor messages you, handle it
+    public void handlePredecessorComms (UpdatePredecessorPayload payload) {
+        System.out.println("Received comms from successor ");
+        PredecessorNode pred = new PredecessorNode(payload.getxNode().getDescriptor(), payload.getxNode().getPeerId());
+        this.predecessorNode = pred;
+        fingerTable.setPredecessorNode(pred);
+    }
+
+
+    /***
+     * Notify module as specified in the chord protocol
+     */
+    private void notify(ChordNode nodeWhichThinksItsOurPredecessor) {
+        //well the predecessor might be the last node in the chord ring
+        //say in a 2 peer chord: with id 1 and 32
+        //32 is predecessor of 1
+        boolean predecessorIsLastNode = false;
+        if (predecessorNode.getPeerId() > this.getPeerId()) {
+            predecessorIsLastNode = true;
+        }
+        if (predecessorNode.getDescriptor() == null
+                || nodeWhichThinksItsOurPredecessor.getPeerId() < predecessorNode.getPeerId()
+                || (predecessorIsLastNode &&
+                (nodeWhichThinksItsOurPredecessor.getPeerId() < predecessorNode.getPeerId()))) {
+            predecessorNode = nodeWhichThinksItsOurPredecessor;
+            //also maybe notify the other node via socket connection
+        }
+    }
+
+    /***
+     * Handle notification via notify(). This is in the peer that receives
+     * message via socket
+     *
+     */
+    private void handleNotify(ChordNode nodeWhichThinksItsOurPredecessor) {
+        //well the predecessor might be the last node in the chord ring
+        //say in a 2 peer chord: with id 1 and 32
+        //32 is predecessor of 1
+        boolean predecessorIsLastNode = false;
+        if (predecessorNode.getPeerId() > this.getPeerId()) {
+            predecessorIsLastNode = true;
+        }
+        if (predecessorNode.getDescriptor() == null
+                || nodeWhichThinksItsOurPredecessor.getPeerId() < predecessorNode.getPeerId()
+                ||
+                //last node checks
+                (predecessorIsLastNode
+                        &&
+                (nodeWhichThinksItsOurPredecessor.getPeerId() < predecessorNode.getPeerId()))
+                || (predecessorIsLastNode
+                &&
+                (nodeWhichThinksItsOurPredecessor.getPeerId() > predecessorNode.getPeerId())
+                && nodeWhichThinksItsOurPredecessor.getPeerId() < this.getPeerId())) {
+            predecessorNode = nodeWhichThinksItsOurPredecessor;
+        }
+
+    }
+
+    /***
+     * Check predecessor. Ping predecessor occasionally. If it's down, then
+     * well predecessor == null. Stablize should fix this later
+     */
+    private void checkPredecessor() {
+
+    }
+
+    private SuccessorNode findSuccessorNode (long targetId, String bootstrapNodeIp, int bootstrapNodePort) {
+        if (boostrapNodeFingerTable == null
+                || (!(bootstrapNodeIp + ":" + bootstrapNodePort).equals(boostrapNodeFingerTable.getCurrentNode().getDescriptor())
+        )) //stale fingerTable. reload ft for new load)
+        {
+            TCPConnection conn = getTCPConnection(tcpCache, bootstrapNodeIp, bootstrapNodePort);
+            tcpCache.put(bootstrapNodeIp + ":" + bootstrapNodePort, conn);
+            requestFingerTableFromBootstrapNode(conn);
+        }
+        long bootstrapNodeId = boostrapNodeFingerTable.getCurrentNode().getPeerId();
+        long successorId = boostrapNodeFingerTable.getSuccessorNode().getPeerId();
+
+        if (nodeBetween (targetId, bootstrapNodeId, successorId)) {
+            return new SuccessorNode(boostrapNodeFingerTable.getSuccessorNode().getDescriptor(),
+                    boostrapNodeFingerTable.getSuccessorNode().getPeerId());
+        }
+        else {
+            ChordNode precedingNode = boostrapNodeFingerTable.findClosestPrecedingNode(targetId);
+            //BREAK RECURSION HERE
+            if (precedingNode.getPeerId() == boostrapNodeFingerTable.getCurrentNode().getPeerId()) {
+                return new SuccessorNode(boostrapNodeFingerTable.getCurrentNode().getDescriptor(),
+                        boostrapNodeFingerTable.getCurrentNode().getPeerId());
+            }
+            return findSuccessorNode(targetId, precedingNode.getDescriptor().split(":")[0],
+                    Integer.parseInt(precedingNode.getDescriptor().split(":")[1]));
+        }
+    }
+
+    private boolean nodeBetween (long newnodeId, long bootstrapnodeId, long successornodeId) {
+        if (bootstrapnodeId < successornodeId) {
+            return bootstrapnodeId < newnodeId && newnodeId < successornodeId;
+        }
+        else {
+            return newnodeId > bootstrapnodeId || newnodeId < successornodeId;
+        }
+    }
+
+
+    private SuccessorNode findSuccessor (long targetKey, String bootstrapNodeIp, int bootstrapNodePort) {
+        if (boostrapNodeFingerTable == null
+        || (!(bootstrapNodeIp + ":" + bootstrapNodePort).equals(boostrapNodeFingerTable.getCurrentNode().getDescriptor())
+            )) //stale fingerTable. reload ft for new load)
+        {
+            TCPConnection conn = getTCPConnection(tcpCache, bootstrapNodeIp, bootstrapNodePort);
+            tcpCache.put(bootstrapNodeIp + ":" + bootstrapNodePort, conn);
+            requestFingerTableFromBootstrapNode(conn);
+        }
+        FingerTableEntry ftEntry =  boostrapNodeFingerTable.lookup(targetKey);
+        //TODO : account for circular connection
+        SuccessorNode bootstrapSuccessor = ftEntry.getSuccessorNode();
+
+        boolean bootstrapNodeIsSuccessor = false;
+        //successor node is the current node
+        if (bootstrapSuccessor.getPeerId() == boostrapNodeFingerTable.getCurrentNode().getPeerId()) {
+            bootstrapNodeIsSuccessor = true;
+            return new SuccessorNode(bootstrapSuccessor.getDescriptor(),
+                    bootstrapSuccessor.getPeerId());
+        }
+        //check circle more comprehensively. could be two nodes in ring and they just call each other's FT
+        //all the time. Break that cycle
+        else if (isCircular(boostrapNodeFingerTable.getCurrentNode().getPeerId(),
+                bootstrapSuccessor.getPeerId())
+            || isCircular(bootstrapSuccessor.getPeerId(),
+                    boostrapNodeFingerTable.getCurrentNode().getPeerId())) {
+            return new SuccessorNode(boostrapNodeFingerTable.getCurrentNode().getDescriptor(),
+                    boostrapNodeFingerTable.getCurrentNode().getPeerId());
+        }
+        //first successor of lookup itself is greater than key then that's the successor
+        else if (ftEntry.getIndex() == 1) {
+            //TODO : What if predecessors are greater than new key?
+            return new SuccessorNode(boostrapNodeFingerTable.getSuccessorNode().getDescriptor(),
+                    boostrapNodeFingerTable.getSuccessorNode().getPeerId());
+        }
+        else {
+            //update bootstrap FT table since we're routing to new node
+            TCPConnection conn = getTCPConnection(tcpCache, bootstrapSuccessor.getDescriptor().split(":")[0],
+                    Integer.parseInt(bootstrapSuccessor.
+                            getDescriptor().split(":")[1]));
+            requestFingerTableFromBootstrapNode(conn);
+            return findSuccessor(targetKey,
+                    bootstrapSuccessor.getDescriptor().split(":")[0],
+                    Integer.parseInt(bootstrapSuccessor.
+                            getDescriptor().split(":")[1]));
+        }
+        //after finding proper successor: TODO
+        // 1) we should update our FT appropriately
+        // 2) contact predecessor of successor and make them update its successor
+        // 3) that successor.predecessor should also notify us to update our predecessor
+    }
+
+    public boolean isCircular(long targetId, long successorId) {
+        if (targetId > successorId) {
+            return true;
+        }
+        return false;
+    }
+
+
+    public TCPConnection getTCPConnection(Map<String, TCPConnection> tcpCache, String bootstrapNodeIp, int bootstrapNodePort) {
+        TCPConnection conn = null;
+        if (tcpCache.containsKey(bootstrapNodeIp+ ":" + bootstrapNodePort)) {
+            conn = tcpCache.get(bootstrapNodeIp+ ":" + bootstrapNodePort);
+        }
+        else {
+            try {
+                Socket clientSocket = new Socket(bootstrapNodeIp, bootstrapNodePort);
+                conn = new TCPConnection(this, clientSocket);
+                tcpCache.put(bootstrapNodeIp+ ":" + bootstrapNodePort, conn);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        if (!conn.isStarted()) {
+            conn.startConnection();
+        }
+        return conn;
+    }
+
+
 
     /***
      * Check and Fix the successor -> predecessor reference periodically
      * Also, update the FT[1] at the predecessor if needed
+     * TODO: we also handle file migration here when successor is changed
      */
+    /*
     private void stabilize() {
+        if (successorNode != null && boostrapNodeFingerTable != null) {
+            String successorIp = successorNode.getDescriptor().split(":")[0];
+            int successorPort = Integer.parseInt(successorNode.getDescriptor().split(":")[1]);
+
+            requestFingerTableFromBootstrapNode(getTCPConnection(tcpCache, successorIp, successorPort));
+            ChordNode xNode = boostrapNodeFingerTable.getPredecessorNode();
+
+
+            boolean currentNodeIsLastNode = false;
+            if (this.getPeerId() > successorNode.getPeerId()) {
+                currentNodeIsLastNode = true;
+            }
+            if ((xNode.getPeerId() > this.getPeerId()
+                    && xNode.getPeerId() < successorNode.getPeerId())
+                    || (currentNodeIsLastNode &&
+                    (xNode.getPeerId() < successorNode.getPeerId()
+                            && xNode.getPeerId() < this.getPeerId()))) {
+                successorNode = xNode;
+                //also maybe notify the other node via socket connection
+            }
+        }
+
         System.out.println("Running stabilize() routine");
+        //call notify
+        notify();
     }
 
     /***
@@ -482,7 +893,45 @@ public class Peer extends Node implements Serializable {
      * Uses the lookup() to fix the entries
      */
 
-    private void fixFingers() {
+    /*
+    private void fixFingers() throws InterruptedException {
         System.out.println("Running fixFingers() routine");
+        next = next + 1;
+        if (next > ChordConfig.NUM_PEERS) {
+            next = 1;
+        }
+        if (next == ChordConfig.NUM_PEERS) {
+            //readjust keyspace ranges.
+            getFingerTable().computeKeySpaceRanges();
+        }
+        //let's use successorNode as bootstrap node to fix FT
+        if (getFingerTable() != null
+                && successorNode != null
+                //&& predecessorNode != null
+                && successorNode.getPeerId() != this.getPeerId()
+            //&& predecessorNode.getPeerId() != this.getPeerId()
+        ) {
+            getFingerTable().getFtEntries().get(next)
+                    .setSuccessorNode(
+                            findSuccessor(
+                                    getPeerId() + (int) Math.pow(2, next - 1),
+                                    successorNode.getDescriptor().split(":")[0],
+                                    Integer.parseInt(successorNode.getDescriptor().split(":")[1])
+                            ));
+        }
     }
+
+
+
+     /***
+     * Initialize the chord ring entry
+     */
+    /*
+    private void create() {
+        this.predecessorNode = null;
+        this.successorNode = new SuccessorNode(this.getPeerDescriptor(), this.getPeerId());
+    }
+    */
+
+
 }

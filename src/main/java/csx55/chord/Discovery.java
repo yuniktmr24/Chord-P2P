@@ -87,18 +87,19 @@ public class Discovery extends Node implements Serializable {
             additionalProcessingInfo += (success ? "Successful. " :"Failed");
             System.out.println(additionalProcessingInfo);
 
-            Message message = new Message(Protocol.BOOSTRAPPING_NODE_INFO, bootstrapNode);
+            if (success) {
+                Message message = new Message(Protocol.BOOSTRAPPING_NODE_INFO, bootstrapNode);
 
-            if (bootstrapNode == null) {
-                System.out.println("First node in the chord overlay");
-                message = new Message(Protocol.ADAM_NODE_INF0, connDetails.getPeerNode().getPeerDescriptor());
+                if (bootstrapNode == null) {
+                    System.out.println("First node in the chord overlay");
+                    message = new Message(Protocol.ADAM_NODE_INF0, connDetails.getPeerNode().getPeerDescriptor());
 
-                //TODO: start process, FT adjustment specific to the first node
+                    //TODO: start process, FT adjustment specific to the first node
+                } else {
+                    System.out.println("Boostrap node : " + bootstrapNode.getPeerDescriptor());
+                }
+                tcpConnection.getSenderThread().sendData(message);
             }
-            else {
-                System.out.println("Boostrap node : " +  bootstrapNode.getPeerDescriptor());
-            }
-            tcpConnection.getSenderThread().sendData(message);
 
         } catch (Exception e) {
             logger.severe("Error handling client in registry "+ e);
@@ -113,10 +114,12 @@ public class Discovery extends Node implements Serializable {
                 Random rand = new Random();
                 int salt = rand.nextInt(10);
 
-                int newPeerId = conn.getPeerNode().getPeerId() * salt;
+                int newPeerId = (int)conn.getPeerNode().getPeerId() * salt;
 
                 Message collisionResolve = new Message(Protocol.NEW_PEER_ID, newPeerId);
                 connDetails.getSenderThread().sendData(collisionResolve);
+
+                return false;
             }
             registeredPeers.add(conn.getPeerNode());
             return true;

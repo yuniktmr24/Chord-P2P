@@ -22,5 +22,11 @@ public interface Protocol {
     final int REQUEST_FINGER_TABLE = 11;
 
     final int SEND_FINGER_TABLE = 12;
+
+    final int SEND_SUCCESSOR_INFO = 13;
+
+    final int ACK = 14;
+
+    final int STABILIZE = 15;
 }
 
