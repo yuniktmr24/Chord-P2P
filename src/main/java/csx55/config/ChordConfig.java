@@ -12,4 +12,6 @@ public class ChordConfig {
     public static final String FILE_STORAGE_ROOT = "tmp";
 
     public static final String FILE_DOWNLOAD_ROOT = "download";
+
+    public static final boolean DEBUG_MODE = true;
 }

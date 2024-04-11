@@ -152,7 +152,9 @@ public class Peer extends Node implements Serializable {
 
         long dataKey = Math.abs(fileNameWithExtension.hashCode());
 
-        //dataKey = Long.parseLong(fileNameWithoutExtension);
+        if (ChordConfig.DEBUG_MODE) {
+            dataKey = Long.parseLong(fileNameWithoutExtension);
+        }
 
         System.out.println("Uploaded File hashcode is "+ dataKey);
 
@@ -185,6 +187,10 @@ public class Peer extends Node implements Serializable {
         String file = FileUtils.removeFileExtension(fileToDownloadWithExtension);
         //long key = Long.parseLong(file); //TODO : fix this before prod //file.hashCode();
         long key = fileToDownloadWithExtension.hashCode();
+
+        if (ChordConfig.DEBUG_MODE) {
+            key = Long.parseLong(file);
+        }
 
         System.out.println("To be downloaded File hashcode is "+ key);
         SuccessorNode successor = findSuccessorNode(key, this.nodeIp, this.nodePort);
