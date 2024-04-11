@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 
+import static csx55.util.FileUtils.removeFileExtension;
+
 public class Peer extends Node implements Serializable {
     private transient final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private static final long serialversionUID = 1L;
@@ -78,6 +80,7 @@ public class Peer extends Node implements Serializable {
             //TODO: DLELTE THIS before PROD
             if (args.length > 0) {
                 peer.peerId = Long.parseLong(args[0]);
+                peer.setAndGetStorageDirectory();
             }
 
             Thread messageNodeServerThread = new Thread(new TCPServerThread(peer, peerServer));
@@ -145,22 +148,28 @@ public class Peer extends Node implements Serializable {
     }
 
     private void sendToNodeResponsibleForFile(FileWrapper file) {
-        int dataKey = Math.abs(file.hashCode());
-        FingerTableEntry possibleSuccessorEntry = this.fingerTable.lookup(dataKey);
+        int dataKey = Math.abs(file.getFileName().hashCode());
+        //TODO : remove this deubg code before prod
+        String fileNameWithExtension = file.getFileName();
+        String fileNameWithoutExtension = removeFileExtension(fileNameWithExtension);
 
-        String possibleSuccessor = possibleSuccessorEntry.getSuccessorNode().getDescriptor();
-        if (possibleSuccessor.equals(this.getPeerDescriptor())) {
-            //store at self //SAME NODE STORAGE
-            storeIncomingFileBytes(file);
+        dataKey = Integer.parseInt(fileNameWithoutExtension);
 
-        }
+        System.out.println("File hashcode is "+ dataKey);
+
         //got to send it to some other node
         //request FT from other node and proceed from there
-        else {
-            SuccessorNode successor = findSuccessor(dataKey,
-                    possibleSuccessorEntry.getSuccessorNode().getDescriptor().split(":")[0],
-                    Integer.parseInt(possibleSuccessorEntry.getSuccessorNode().getDescriptor().split(":")[1]));
 
+        SuccessorNode successor = findSuccessorNode(dataKey,
+                this.nodeIp,
+                this.nodePort);
+        System.out.println("Storage node is " + successor.getPeerId());
+
+        if (successor.getPeerId() == this.getPeerId()) {
+            //store at self //SAME NODE STORAGE
+            storeIncomingFileBytes(file);
+        }
+        else {
             TCPConnection connToSuccessor = getTCPConnection(tcpCache,
                     successor.getDescriptor().split(":")[0],
                     Integer.parseInt(successor.getDescriptor().split(":")[1]));
@@ -170,7 +179,6 @@ public class Peer extends Node implements Serializable {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-
         }
     }
 
@@ -269,7 +277,7 @@ public class Peer extends Node implements Serializable {
                             userInput.startsWith(String.valueOf(UserCommands.CHECK_SUCCESSOR.getCmdId()))) {
                         validCheckSuccessorCmd = true;
                         long key = Long.parseLong(userInput.split(" ")[1]);
-                        SuccessorNode successor = findSuccessorNode(key, this.nodeIp, this.nodePort);
+                        SuccessorNode successor = findSuccessorNode(key, this.nodeIp, this.nodePort, true);
                         System.out.println(successor.getPeerId());
                     }
                 }
@@ -286,7 +294,14 @@ public class Peer extends Node implements Serializable {
                     System.out.println(node.getNeighbors());
                 }
                 else if (userInput.equals(UserCommands.PRINT_FILES.getCmd()) || userInput.equals(String.valueOf(UserCommands.PRINT_FILES.getCmdId()))) {
-                    node.getStoredFilePaths().forEach(System.out::println);
+                    Path dir = Paths.get(this.fileStorageDirectory); // Replace "path/to/directory" with your directory path
+                    try (Stream<Path> stream = Files.list(dir)) {
+                        stream.forEach(System.out::println);
+                    } catch (IOException e) {
+                        System.out.println("Error reading directory");
+                        e.printStackTrace();
+                    }
+                    //node.getStoredFilePaths().forEach(System.out::println);
                 }
                 //for testing
                 else if (userInput.equals(UserCommands.FINGER_TABLE.getCmd()) || userInput.equals(String.valueOf(UserCommands.FINGER_TABLE.getCmdId()))) {
@@ -483,9 +498,8 @@ public class Peer extends Node implements Serializable {
     }
 
     private String setAndGetStorageDirectory() {
-        this.fileStorageDirectory = ChordConfig.FILE_STORAGE_ROOT
-                + "/tmp/"
-                + this.nodePort;
+        this.fileStorageDirectory = ChordConfig.FILE_STORAGE_ROOT + "/"
+                + this.peerId;
         return this.fileStorageDirectory;
     }
     public void storeIncomingFileBytes(FileWrapper fileWrapper) {
@@ -734,7 +748,12 @@ public class Peer extends Node implements Serializable {
 
     }
 
-    private SuccessorNode findSuccessorNode (long targetId, String bootstrapNodeIp, int bootstrapNodePort) {
+    private SuccessorNode findSuccessorNode (long targetId, String bootstrapNodeIp, int bootstrapNodePort
+            ) {
+        return findSuccessorNode(targetId, bootstrapNodeIp, bootstrapNodePort, false);
+    }
+
+    private SuccessorNode findSuccessorNode (long targetId, String bootstrapNodeIp, int bootstrapNodePort, boolean printHops) {
         if (boostrapNodeFingerTable == null
                 || (!(bootstrapNodeIp + ":" + bootstrapNodePort).equals(boostrapNodeFingerTable.getCurrentNode().getDescriptor())
         )) //stale fingerTable. reload ft for new load)
@@ -742,6 +761,9 @@ public class Peer extends Node implements Serializable {
             TCPConnection conn = getTCPConnection(tcpCache, bootstrapNodeIp, bootstrapNodePort);
             tcpCache.put(bootstrapNodeIp + ":" + bootstrapNodePort, conn);
             requestFingerTableFromBootstrapNode(conn);
+            if (printHops) {
+                System.out.println("Routed to " + boostrapNodeFingerTable.getCurrentNode().getPeerId());
+            }
         }
         long bootstrapNodeId = boostrapNodeFingerTable.getCurrentNode().getPeerId();
         long successorId = boostrapNodeFingerTable.getSuccessorNode().getPeerId();

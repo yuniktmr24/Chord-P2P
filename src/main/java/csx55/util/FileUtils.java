@@ -15,4 +15,16 @@ public class FileUtils {
         }
         return path;
     }
+
+
+    public static String removeFileExtension(String fileName) {
+        // Find the last index of '.'
+        int dotIndex = fileName.lastIndexOf('.');
+        // If there isn't any '.' or it's the first character, return the whole name
+        if (dotIndex <= 0) {
+            return fileName;
+        }
+        // Otherwise, return the substring up to the last '.'
+        return fileName.substring(0, dotIndex);
+    }
 }
