@@ -222,7 +222,7 @@ public class Peer extends Node implements Serializable {
         // and maybe set object to be of type FileWrapper
         System.out.println("Received download request");
         //first Find file, create wrapper, send it over
-        Path storageRoot = Paths.get(ChordConfig.FILE_STORAGE_ROOT);
+        Path storageRoot = Paths.get(ChordConfig.FILE_STORAGE_ROOT + "/" + this.peerId);
 
         try {
             // Search for the file in the given directory
@@ -255,8 +255,14 @@ public class Peer extends Node implements Serializable {
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
             System.err.println("Error while searching for file or reading file: " + e.getMessage());
+            System.out.println("File not found: ");
+            Message sendFile = new Message(Protocol.DOWNLOAD_RESPONSE, "File not found");
+            try {
+                conn.getSenderThread().sendObject(sendFile);
+            } catch (InterruptedException | IOException ex) {
+                throw new RuntimeException(ex);
+            }
         }
     }
 
@@ -297,6 +303,47 @@ public class Peer extends Node implements Serializable {
             } catch (IOException e) {
                 System.err.println("Error writing file: " + e.getMessage());
             }
+        }
+    }
+
+    public void checkSuccessorForFileStorage() {
+        Path dir = Paths.get(this.fileStorageDirectory);
+        try (Stream<Path> stream = Files.list(dir)) {
+            stream.forEach(path -> {
+                byte [] fileBytes = null;
+                try {
+                    fileBytes = Files.readAllBytes(path);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                String fileName = path.getFileName().toString();
+                long key = fileName.hashCode();
+                if (ChordConfig.DEBUG_MODE) {
+                    key = Long.parseLong(removeFileExtension(fileName));
+                }
+                //System.out.println(fileName + " -> HashCode: " + key);
+                SuccessorNode successor = findSuccessorNode(key, this.nodeIp, this.nodePort);
+                System.out.println(fileName + " -> HashCode: " + key + "| Successor -> "+ successor.getPeerId());
+                //transfer file over if successor is different than self
+                if (successor.getPeerId() != this.getPeerId()) {
+                    FileWrapper file = new FileWrapper(fileBytes, fileName);
+                    TCPConnection connToSuccessor = getTCPConnection(tcpCache,
+                            successor.getDescriptor().split(":")[0],
+                            Integer.parseInt(successor.getDescriptor().split(":")[1]));
+
+                    try {
+                        connToSuccessor.getSenderThread().sendData(file);
+                        //TODO: well actually might be smarter to delete if the successor sends ack that it has done storage
+                        Files.deleteIfExists(path);
+                        System.out.println("Transferred file to new successor -> "+ successor.getPeerId());
+                    } catch (InterruptedException | IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            });
+        } catch (IOException e) {
+            System.out.println("Error reading directory");
+            e.printStackTrace();
         }
     }
 
@@ -411,13 +458,15 @@ public class Peer extends Node implements Serializable {
                     System.out.println(node.getNeighbors());
                 }
                 else if (userInput.equals(UserCommands.PRINT_FILES.getCmd()) || userInput.equals(String.valueOf(UserCommands.PRINT_FILES.getCmdId()))) {
-                    Path dir = Paths.get(this.fileStorageDirectory); // Replace "path/to/directory" with your directory path
+                    Path dir = Paths.get(this.fileStorageDirectory);
                     try (Stream<Path> stream = Files.list(dir)) {
                         stream.forEach(System.out::println);
                     } catch (IOException e) {
                         System.out.println("Error reading directory");
                         e.printStackTrace();
                     }
+                    //FileUtils.printFileNamesWithHashCode(this.fileStorageDirectory);
+                    checkSuccessorForFileStorage();
                     //node.getStoredFilePaths().forEach(System.out::println);
                 }
                 //for testing
