@@ -342,8 +342,7 @@ public class Peer extends Node implements Serializable {
                 }
             });
         } catch (IOException e) {
-            System.out.println("Error reading directory");
-            e.printStackTrace();
+            System.out.println("Directory may not exist yet. Will create when necessary");
         }
     }
 
@@ -774,6 +773,7 @@ public class Peer extends Node implements Serializable {
     //JOIN -> contactPredecessorToStabize both need FT updates.
     //when current node role is successor to another node aka xNode
     //note the other node still has to deal with updating its pred, succ
+    //this method operates at successor node
     public void contactPredecessorToStabilize (ChordNode xNode) {
         //cold start problem
         if (predecessorNode == null) {
@@ -808,6 +808,8 @@ public class Peer extends Node implements Serializable {
         //successor node is finalized here, so we don't do recursive lookups again
         //check for circular links as well
         //updateFingerTable();
+        //Here: migrate data to new responsible node
+        checkSuccessorForFileStorage();
     }
 
     private void notifySuccessor(TCPConnection successorConn) {
@@ -844,7 +846,8 @@ public class Peer extends Node implements Serializable {
 //        TCPConnection connSucc  = getTCPConnection(tcpCache, payload.getxNode().getDescriptor().split(":")[0],
 //                Integer.parseInt(payload.getxNode().getDescriptor().split(":")[1]));
 //        notifySuccessor(connSucc);
-        //TODO: migrate data to successor
+        //Here: migrate data to successor
+        //checkSuccessorForFileStorage();
     }
 
 
