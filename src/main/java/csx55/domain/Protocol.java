@@ -28,5 +28,9 @@ public interface Protocol {
     final int ACK = 14;
 
     final int STABILIZE = 15;
+
+    final int DOWNLOAD_REQUEST = 16;
+
+    final int DOWNLOAD_RESPONSE = 17;
 }
 

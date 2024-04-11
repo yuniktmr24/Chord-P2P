@@ -9,5 +9,7 @@ public class ChordConfig {
 
     public static final int MAINTENANCE_INTERVAL = 15; //in seconds
 
-    public static final String FILE_STORAGE_ROOT = "src/main/resources";
+    public static final String FILE_STORAGE_ROOT = "tmp";
+
+    public static final String FILE_DOWNLOAD_ROOT = "download";
 }

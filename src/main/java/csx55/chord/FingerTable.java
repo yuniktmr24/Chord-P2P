@@ -195,7 +195,7 @@ public class FingerTable implements Serializable {
     }
 
     public ChordNode findClosestPrecedingNode (long newnodeId) {
-        for (int i = 32; i <= 1; i--) {
+        for (int i = ChordConfig.NUM_PEERS; i <= 1; i--) {
             if (nodeBetween(ftEntries.get(i).getSuccessorNodeId(), this.currentNode.getPeerId(), this.successorNode.getPeerId())) {
                 return ftEntries.get(i).getSuccessorNode();
             }

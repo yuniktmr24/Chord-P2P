@@ -12,9 +12,7 @@ import java.io.*;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -148,14 +146,15 @@ public class Peer extends Node implements Serializable {
     }
 
     private void sendToNodeResponsibleForFile(FileWrapper file) {
-        int dataKey = Math.abs(file.getFileName().hashCode());
         //TODO : remove this deubg code before prod
         String fileNameWithExtension = file.getFileName();
         String fileNameWithoutExtension = removeFileExtension(fileNameWithExtension);
 
-        dataKey = Integer.parseInt(fileNameWithoutExtension);
+        long dataKey = Math.abs(fileNameWithExtension.hashCode());
 
-        System.out.println("File hashcode is "+ dataKey);
+        //dataKey = Long.parseLong(fileNameWithoutExtension);
+
+        System.out.println("Uploaded File hashcode is "+ dataKey);
 
         //got to send it to some other node
         //request FT from other node and proceed from there
@@ -182,7 +181,119 @@ public class Peer extends Node implements Serializable {
         }
     }
 
-    public void download(String fileToDownloadWithExtension) {}
+    public void download(String fileToDownloadWithExtension) {
+        String file = FileUtils.removeFileExtension(fileToDownloadWithExtension);
+        //long key = Long.parseLong(file); //TODO : fix this before prod //file.hashCode();
+        long key = fileToDownloadWithExtension.hashCode();
+
+        System.out.println("To be downloaded File hashcode is "+ key);
+        SuccessorNode successor = findSuccessorNode(key, this.nodeIp, this.nodePort);
+
+        System.out.println("Storage node is " + successor.getPeerId());
+
+        if (successor.getPeerId() == this.getPeerId()) {
+            //download from self //SAME NODE STORAGE
+            downloadFileBytesFromOwnStorage(fileToDownloadWithExtension);
+        }
+        else {
+            //make download request payloadf
+            Message downloadRequest = new Message(Protocol.DOWNLOAD_REQUEST, fileToDownloadWithExtension);
+
+            TCPConnection connToSuccessor = getTCPConnection(tcpCache,
+                    successor.getDescriptor().split(":")[0],
+                    Integer.parseInt(successor.getDescriptor().split(":")[1]));
+
+            try {
+                connToSuccessor.getSenderThread().sendData(downloadRequest);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    public void acknowledgeDownloadRequest (Message msg, TCPConnection conn) {
+        //fetch file and then send it over the wire as Download_Response payload type
+        // and maybe set object to be of type FileWrapper
+        System.out.println("Received download request");
+        //first Find file, create wrapper, send it over
+        Path storageRoot = Paths.get(ChordConfig.FILE_STORAGE_ROOT);
+
+        try {
+            // Search for the file in the given directory
+            Optional<Path> foundFile = Files.walk(storageRoot)
+                    .filter(p -> p.getFileName().toString().equals(msg.getPayload()))
+                    .findFirst();
+
+            if (foundFile.isPresent()) {
+                Path file = foundFile.get();
+                // Read all bytes from the found file
+                byte[] fileBytes = Files.readAllBytes(file);
+                // Create a new FileWrapper with the file's bytes and name
+                FileWrapper fileWrapper = new FileWrapper(fileBytes, file.getFileName().toString());
+                System.out.println("FileWrapper created for: " + file);
+
+                Message sendFile = new Message(Protocol.DOWNLOAD_RESPONSE, fileWrapper);
+                try {
+                    conn.getSenderThread().sendObject(sendFile);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+
+            } else {
+                System.out.println("File not found: ");
+                Message sendFile = new Message(Protocol.DOWNLOAD_RESPONSE, "File not found");
+                try {
+                    conn.getSenderThread().sendObject(sendFile);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.err.println("Error while searching for file or reading file: " + e.getMessage());
+        }
+    }
+
+    private void downloadFileBytesFromOwnStorage(String file) {
+        //yeah well lets copy it to the download directory then
+        Path sourcePath = Paths.get(ChordConfig.FILE_STORAGE_ROOT + "/" + this.getPeerId(), file);
+        Path destinationPath = Paths.get(ChordConfig.FILE_DOWNLOAD_ROOT, file);
+
+        try {
+            // Ensure the download directory exists
+            Files.createDirectories(destinationPath.getParent());
+
+            // Copy file from storage to download directory
+            Files.copy(sourcePath, destinationPath, StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("File successfully copied to " + destinationPath);
+        } catch (IOException e) {
+            System.err.println("Error copying file: " + e.getMessage());
+        }
+    }
+
+    public void downloadIncomingFileBytes(Message msg) {
+        if (msg.getPayload() instanceof String) {
+            System.out.println(msg.getPayload());
+        }
+        else {
+            FileWrapper incomingFile = (FileWrapper) msg.getPayload();
+
+            // Retrieve the directory path from ChordConfig
+            Path directoryPath = Paths.get(ChordConfig.FILE_DOWNLOAD_ROOT);
+            Path filePath = directoryPath.resolve(incomingFile.getFileName());
+
+            try {
+                // Create directories if they do not exist
+                Files.createDirectories(directoryPath);
+                // Write bytes to file, creating the file if it doesn't exist or overwriting existing file
+                Files.write(filePath, incomingFile.getFileBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                System.out.println("File saved successfully to " + filePath);
+            } catch (IOException e) {
+                System.err.println("Error writing file: " + e.getMessage());
+            }
+        }
+    }
+
 
     public FingerTable getFingerTable() {
         return fingerTable;
@@ -399,7 +510,7 @@ public class Peer extends Node implements Serializable {
     private void fixFinger() {
         if (successorNode != null && successorNode.getPeerId() > this.peerId) {
             System.out.println("Fixing fingers locally");
-            for (int i = 32; i >= 1; i--) {
+            for (int i = ChordConfig.NUM_PEERS; i >= 1; i--) {
                 FingerTableEntry entry = this.fingerTable.getFtEntries().get(i - 1);
                 SuccessorNode successor = findSuccessorNode(entry.getKey(), this.nodeIp, this.nodePort);
                 //System.out.println("Successor for "+ entry.getKey() + " is "+ successor.getPeerId());
