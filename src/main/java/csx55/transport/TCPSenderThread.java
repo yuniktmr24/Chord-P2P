@@ -46,7 +46,8 @@ public class TCPSenderThread implements Runnable {
 //                }
 
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    System.out.println("Connection closed");
+                    //e.printStackTrace();
                 }
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);

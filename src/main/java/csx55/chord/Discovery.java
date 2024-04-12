@@ -55,7 +55,7 @@ public class Discovery extends Node implements Serializable {
                 else if (userInput.equals(UserCommands.LIST_PEERS.getCmd())
                         || userInput.equals(String.valueOf(UserCommands.LIST_PEERS.getCmdId()))) {
                     registeredPeers.forEach(i -> {
-                        System.out.println(i.getPeerDescriptor());
+                        System.out.println(i.getPeerId() + " "+ i.getPeerDescriptor());
                     });
                 }
             }
@@ -83,6 +83,8 @@ public class Discovery extends Node implements Serializable {
                 additionalProcessingInfo = "Bootstrapping node info returned...";
             } else if (connDetails.getRequestType().equals(RequestType.LEAVE_CHORD)) {
                 additionalProcessingInfo = "Leaving Chord...";
+                //node has left, so that's that
+                return;
             }
             additionalProcessingInfo += (success ? "Successful. " :"Failed");
             System.out.println(additionalProcessingInfo);
@@ -133,6 +135,8 @@ public class Discovery extends Node implements Serializable {
         PeerConnection peerConn = new PeerConnection(conn.getPeerNode(), connDetails);
         try {
             registeredPeers.removeIf(p -> p.getPeerId() == conn.getPeerNode().getPeerId());
+            System.out.println("Node removal success");
+            connDetails.getSenderThread().sendObject(new Message(Protocol.ALL_CLEAR_TO_LEAVE, "Bye"));
             return true;
         }
         catch (Exception ex) {

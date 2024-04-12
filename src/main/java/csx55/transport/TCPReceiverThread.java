@@ -79,6 +79,9 @@ public class TCPReceiverThread implements Runnable {
                         else if (msg.getProtocol() == Protocol.DOWNLOAD_RESPONSE) {
                             ((Peer) node).downloadIncomingFileBytes(msg);
                         }
+                        else if (msg.getProtocol() == Protocol.ALL_CLEAR_TO_LEAVE) {
+                            ((Peer) node).goodBye(msg);
+                        }
                         else {
                             ((Peer) node).handleMessage(msg);
                         }

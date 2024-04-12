@@ -45,7 +45,7 @@ public class Peer extends Node implements Serializable {
     private ChordNode successorNode;
 
 
-    private Map <String, TCPConnection> tcpCache = new HashMap<>();
+    private transient Map <String, TCPConnection> tcpCache = new HashMap<>();
 
     private String fileStorageDirectory;
 
@@ -57,7 +57,7 @@ public class Peer extends Node implements Serializable {
 
     private transient Socket socketToRegistry;
 
-    private int next;
+    private transient CountDownLatch leaveChordLatch;
 
     private void setServiceDiscovery (String nodeIp, int nodePort) {
         setNodeIp(nodeIp);
@@ -117,12 +117,6 @@ public class Peer extends Node implements Serializable {
         } catch (IOException | InterruptedException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    //deregister
-    public void leaveChord (Peer peer) {
-        ClientConnection leaveChord = new ClientConnection(RequestType.LEAVE_CHORD, this);
-        //this.discoveryConnection.getSenderThread().sendData();
     }
 
 
@@ -447,26 +441,46 @@ public class Peer extends Node implements Serializable {
                 if (userInput.equals(UserCommands.EXIT.getCmd()) || userInput.equals(String.valueOf(UserCommands.EXIT.getCmdId()))) {
                     //exit everything
                     running = false;
-                    System.out.println("[Messaging Node] Exiting Overlay...");
-                    ClientConnection conn2 = new ClientConnection(RequestType.LEAVE_CHORD, node);
-//                    byte[] dataToSend2 = conn2.marshal();
-//                    this.registryConnection.getSenderThread().sendData(dataToSend2);
-                    //  TimeUnit.SECONDS.sleep(3);
-                    // this.registryConnection.closeConnection();
+                    //update successor predecessor chain first
+                    //ask successor to update predecessor
+                    TCPConnection connToSuccessor = getTCPConnection(tcpCache,
+                            this.successorNode.getDescriptor().split(":")[0],
+                            Integer.parseInt(this.successorNode.getDescriptor().split(":")[1]));
+                    notifySuccessorWithPayload(connToSuccessor,
+                            new UpdatePredecessorPayload(
+                                new ChordNode(this.predecessorNode.getDescriptor(), this.predecessorNode.getPeerId())
+                        ));
+
+                    //ask predecessor to update successor
+                    TCPConnection connToPredecessor = getTCPConnection(tcpCache,
+                            this.predecessorNode.getDescriptor().split(":")[0],
+                            Integer.parseInt(this.predecessorNode.getDescriptor().split(":")[1]));
+                    notifyPredecessorWithPayload(connToPredecessor,
+                            new UpdateSuccessorPayload(new ChordNode(
+                                    this.successorNode.getDescriptor(), this.successorNode.getPeerId()
+                            )));
+
+                    System.out.println("Transferring keys to successor");
+                    checkSuccessorForFileStorage();
+
+                    try {
+                        Thread.sleep(2000);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+
+                    ClientConnection conn2 = new ClientConnection(RequestType.LEAVE_CHORD, this);
+                    leaveChordLatch = new CountDownLatch(1);
+                    discoveryConnection.startConnection();
+                    discoveryConnection.getSenderThread().sendData(conn2);
+                    leaveChordLatch.await();
+                    System.exit(0);
                 } else if (userInput.equals(UserCommands.PRINT_NEIGHBORS.getCmd()) || userInput.equals(String.valueOf(UserCommands.PRINT_NEIGHBORS.getCmdId()))) {
                     System.out.println(node.getNeighbors());
                 }
                 else if (userInput.equals(UserCommands.PRINT_FILES.getCmd()) || userInput.equals(String.valueOf(UserCommands.PRINT_FILES.getCmdId()))) {
-                    Path dir = Paths.get(this.fileStorageDirectory);
-                    try (Stream<Path> stream = Files.list(dir)) {
-                        stream.forEach(System.out::println);
-                    } catch (IOException e) {
-                        System.out.println("Error reading directory");
-                        e.printStackTrace();
-                    }
-                    //FileUtils.printFileNamesWithHashCode(this.fileStorageDirectory);
-                    checkSuccessorForFileStorage();
-                    //node.getStoredFilePaths().forEach(System.out::println);
+                    FileUtils.printFileNamesWithHashCode(this.fileStorageDirectory);
+                    //checkSuccessorForFileStorage();
                 }
                 //for testing
                 else if (userInput.equals(UserCommands.FINGER_TABLE.getCmd()) || userInput.equals(String.valueOf(UserCommands.FINGER_TABLE.getCmdId()))) {
@@ -487,18 +501,24 @@ public class Peer extends Node implements Serializable {
 
         } catch (IOException ex) {
 
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
+    }
+
+    public void goodBye(Message msg) {
+        System.out.println(msg.getPayload());
+        leaveChordLatch.countDown();
     }
 
 
     public String getNeighbors() {
         StringBuilder sb = new StringBuilder();
 
-        sb.append("Predecessor "+ predecessorNode.getDescriptor());
-        sb.append(" | Successor" + successorNode.getDescriptor());
+        sb.append("Predecessor: "+ predecessorNode.getPeerId() + " " + predecessorNode.getDescriptor());
         sb.append("\n");
-        sb.append("Predecessor id "+ predecessorNode.getPeerId());
-        sb.append(" | Successor id " + successorNode.getPeerId());
+        sb.append("Successor: " + successorNode.getPeerId() + " " + successorNode.getDescriptor());
+        sb.append("\n");
 
         return sb.toString();
     }
@@ -812,6 +832,14 @@ public class Peer extends Node implements Serializable {
         checkSuccessorForFileStorage();
     }
 
+    private void notifySuccessorWithPayload(TCPConnection successorConn, UpdatePredecessorPayload payload) {
+        try {
+            successorConn.getSenderThread().sendData(payload);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private void notifySuccessor(TCPConnection successorConn) {
         UpdatePredecessorPayload payload = new UpdatePredecessorPayload(new PredecessorNode(
                 this.getPeerDescriptor(), this.getPeerId()
@@ -822,6 +850,15 @@ public class Peer extends Node implements Serializable {
             throw new RuntimeException(e);
         }
     }
+
+    private void notifyPredecessorWithPayload(TCPConnection predConn, UpdateSuccessorPayload payload) {
+        try {
+            predConn.getSenderThread().sendData(payload);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
 
     //notifyPredecessor -> handleSuccessorComms - part of actual stabilize
     private void notifyPredecessor(TCPConnection predConn, PredecessorNode predInfo) {

@@ -32,5 +32,7 @@ public interface Protocol {
     final int DOWNLOAD_REQUEST = 16;
 
     final int DOWNLOAD_RESPONSE = 17;
+
+    final int ALL_CLEAR_TO_LEAVE = 18;
 }
 

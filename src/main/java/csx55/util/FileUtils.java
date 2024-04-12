@@ -41,11 +41,11 @@ public class FileUtils {
                 if (ChordConfig.DEBUG_MODE) {
                     key = Long.parseLong(removeFileExtension(fileName));
                 }
-                System.out.println(fileName + " -> HashCode: " + key);
+                System.out.println(fileName + " : " + key);
             });
         } catch (IOException e) {
             System.out.println("Error reading directory");
-            e.printStackTrace();
+            //e.printStackTrace();
         }
     }
 }
